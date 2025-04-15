@@ -1,9 +1,10 @@
 #![feature(io_const_error_internals)]
 
-mod wav;
 mod util;
+mod wav;
 
 #[derive(clap::Parser)]
+#[command(version)]
 struct Args {
     file: std::path::PathBuf,
 }
