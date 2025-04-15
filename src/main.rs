@@ -1,3 +1,5 @@
+#![feature(io_const_error_internals)]
+
 mod wav;
 mod util;
 
@@ -14,7 +16,8 @@ fn main() -> std::io::Result<()> {
 
     let reader = WavReader::open(args.file).map_err(util::cvt_err)?;
 
-    dbg!(reader.spec());
+    // TODO: used to output in project part 1, delete it after this
+    wav::dump_header(&reader);
 
     Ok(())
 }
