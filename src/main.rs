@@ -1,5 +1,11 @@
-#![feature(io_const_error_internals)]
+#![feature(
+    io_const_error,
+    io_const_error_internals,
+    likely_unlikely,
+    slice_ptr_get,
+)]
 
+mod exotic_formats;
 mod util;
 mod wav;
 
@@ -12,13 +18,13 @@ struct Args {
 fn main() -> std::io::Result<()> {
     use clap::Parser;
     use hound::WavReader;
+    use wav::Player;
 
     let args = Args::parse();
 
     let reader = WavReader::open(args.file).map_err(util::cvt_err)?;
-
-    // TODO: used to output in project part 1, delete it after this
-    wav::dump_header(&reader);
+    let mut player = Player::new(reader).map_err(std::io::Error::other)?;
+    player.play()?;
 
     Ok(())
 }

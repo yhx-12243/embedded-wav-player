@@ -1,0 +1,5 @@
+#!/bin/sh
+
+TMP=$(mktemp)
+docker cp em:/root/player/target/armv7-unknown-linux-gnueabihf/release/player $TMP
+scp $TMP em:~/lab/player
