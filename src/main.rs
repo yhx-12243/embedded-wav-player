@@ -15,10 +15,9 @@ fn main() -> std::io::Result<()> {
 
     let args = Args::parse();
 
-    let reader = WavReader::open(args.file).map_err(util::cvt_err)?;
+    let mut reader = WavReader::open(args.file).map_err(util::cvt_err)?;
 
-    // TODO: used to output in project part 1, delete it after this
-    wav::dump_header(&reader);
+    wav::play(&mut reader)?;
 
     Ok(())
 }
