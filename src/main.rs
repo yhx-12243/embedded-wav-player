@@ -1,4 +1,9 @@
-#![feature(io_const_error_internals)]
+#![feature(
+    io_const_error,
+    io_const_error_internals,
+    likely_unlikely,
+    slice_ptr_get,
+)]
 
 mod util;
 mod wav;
@@ -18,7 +23,7 @@ fn main() -> std::io::Result<()> {
 
     let reader = WavReader::open(args.file).map_err(util::cvt_err)?;
     let mut player = Player::new(reader).map_err(std::io::Error::other)?;
-    player.play().map_err(std::io::Error::other)?;
+    player.play()?;
 
     Ok(())
 }

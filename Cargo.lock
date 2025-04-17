@@ -192,6 +192,7 @@ name = "player"
 version = "1.0.0"
 dependencies = [
  "alsa",
+ "alsa-sys",
  "clap",
  "clap_derive",
  "hound",
