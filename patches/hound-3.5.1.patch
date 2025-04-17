@@ -63,7 +63,7 @@ index fe435cb..730913f 100644
              Error::UnfinishedSample => "the number of samples written is not a multiple of the number of channels",
              Error::Unsupported => "the wave format of the file is not supported",
 diff --git a/src/read.rs b/src/read.rs
-index 9c9a9a4..c48db40 100644
+index 9c9a9a4..df49d76 100644
 --- a/src/read.rs
 +++ b/src/read.rs
 @@ -15,19 +15,12 @@ use std::fs;
@@ -176,7 +176,7 @@ index 9c9a9a4..c48db40 100644
  
 +impl<R> ReadExt for R
 +where
-+    R: io::Read + io::Seek
++    R: io::Read + io::Seek,
 +{
 +    #[inline(always)]
 +    fn skip_bytes(&mut self, n: usize) -> io::Result<()> {
@@ -430,7 +430,29 @@ index 9c9a9a4..c48db40 100644
              num_samples: num_samples,
              samples_read: 0,
              reader: reader,
-@@ -702,10 +692,9 @@ impl<R> WavReader<R>
+@@ -684,11 +674,21 @@ impl<R> WavReader<R>
+         self.num_samples
+     }
+ 
++    /// Returns the underlying reader for performance.
++    pub unsafe fn as_mut_inner(&mut self) -> &mut R {
++        &mut self.reader
++    }
++
+     /// Destroys the `WavReader` and returns the underlying reader.
+     pub fn into_inner(self) -> R {
+         self.reader
+     }
+ 
++    /// Returns the number of samples that have been read so far.
++    pub fn position(&self) -> u32 {
++        self.samples_read
++    }
++
+     /// Seek to the given time within the file.
+     ///
+     /// The given time is measured in number of samples (independent of the
+@@ -702,10 +702,9 @@ impl<R> WavReader<R>
      pub fn seek(&mut self, time: u32) -> io::Result<()>
          where R: io::Seek,
      {
@@ -442,7 +464,7 @@ index 9c9a9a4..c48db40 100644
          try!(self.reader.seek(io::SeekFrom::Current(offset_bytes)));
          self.samples_read = sample_position;
          Ok(())
-@@ -732,7 +721,7 @@ fn iter_next<R, S>(reader: &mut WavReader<R>) -> Option<Result<S>>
+@@ -732,7 +731,7 @@ fn iter_next<R, S>(reader: &mut WavReader<R>) -> Option<Result<S>>
          reader.samples_read += 1;
          let sample = Sample::read(&mut reader.reader,
                                    reader.spec.sample_format,

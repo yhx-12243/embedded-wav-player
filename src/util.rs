@@ -1,3 +1,4 @@
+use core::{error::Error, fmt};
 use std::io;
 
 use alsa::pcm::Format;
@@ -11,24 +12,23 @@ pub fn cvt_err(err: hound::Error) -> io::Error {
     }
 }
 
-pub enum PlayError {
-    Alsa(alsa::Error),
-    Format(WavSpec),
-}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct UnsupportedFormatError(pub WavSpec);
 
-impl From<alsa::Error> for PlayError {
-    fn from(err: alsa::Error) -> Self {
-        Self::Alsa(err)
+impl fmt::Display for UnsupportedFormatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "Unsupported format: {:?}, ({} bits, {} bytes) per sample",
+            self.0.sample_format, self.0.bits_per_sample, self.0.bytes_per_sample
+        )
     }
 }
 
-impl WavSpec for PlayError {
-    fn from_spec(spec: WavSpec) -> Self {
-        Self::Format(spec)
-    }
-}
+impl Error for UnsupportedFormatError {}
 
-pub fn cvt_format(spec: WavSpec) -> Result<Format, WavSpec> {
+pub fn cvt_format(spec: WavSpec) -> Result<Format, UnsupportedFormatError> {
     match spec.sample_format {
         SampleFormat::Int => match (spec.bits_per_sample, spec.bytes_per_sample) {
             (8, 1) => Ok(Format::S8),
@@ -38,12 +38,12 @@ pub fn cvt_format(spec: WavSpec) -> Result<Format, WavSpec> {
             (24, 3) => Ok(Format::S243LE),
             (24, 4) => Ok(Format::S24LE),
             (32, 4) => Ok(Format::S32LE),
-            _ => Err(spec),
+            _ => Err(UnsupportedFormatError(spec)),
         },
         SampleFormat::Float => match (spec.bits_per_sample, spec.bytes_per_sample) {
             (32, 4) => Ok(Format::FloatLE),
             (64, 8) => Ok(Format::Float64LE),
-            _ => Err(spec),
+            _ => Err(UnsupportedFormatError(spec)),
         },
     }
 }

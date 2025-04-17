@@ -12,12 +12,13 @@ struct Args {
 fn main() -> std::io::Result<()> {
     use clap::Parser;
     use hound::WavReader;
+    use wav::Player;
 
     let args = Args::parse();
 
-    let mut reader = WavReader::open(args.file).map_err(util::cvt_err)?;
-
-    wav::play(&mut reader)?;
+    let reader = WavReader::open(args.file).map_err(util::cvt_err)?;
+    let mut player = Player::new(reader).map_err(std::io::Error::other)?;
+    player.play().map_err(std::io::Error::other)?;
 
     Ok(())
 }
