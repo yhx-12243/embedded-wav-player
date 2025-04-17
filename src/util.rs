@@ -71,7 +71,9 @@ pub fn cvt_format(spec: WavSpec) -> Result<Format, UnsupportedFormatError> {
             (18, 3) => Ok(Format::S183LE),
             (20, 3) => Ok(Format::S203LE),
             (24, 3) => Ok(Format::S243LE),
-            (20, 4) => Ok(unsafe { mem::transmute(alsa_sys::SND_PCM_FORMAT_S20_LE as u8) }),
+            (20, 4) => Ok(unsafe {
+                mem::transmute::<u8, alsa::pcm::Format>(alsa_sys::SND_PCM_FORMAT_S20_LE as u8)
+            }),
             (24, 4) => Ok(Format::S24LE),
             (32, 4) => Ok(Format::S32LE),
             _ => Err(UnsupportedFormatError(spec)),

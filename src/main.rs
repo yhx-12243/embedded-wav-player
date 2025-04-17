@@ -5,6 +5,7 @@
     slice_ptr_get,
 )]
 
+mod exotic_formats;
 mod util;
 mod wav;
 

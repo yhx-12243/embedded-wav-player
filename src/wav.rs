@@ -7,7 +7,10 @@ use alsa::{
 };
 use hound::WavReader;
 
-use crate::util::{UnsupportedFormatError, cvt_format, read_surplus};
+use crate::{
+    exotic_formats::{S24_3, S24_4},
+    util::{UnsupportedFormatError, cvt_format, read_surplus},
+};
 
 pub fn dump_header<R>(reader: &WavReader<R>)
 where
@@ -115,6 +118,8 @@ where
         match self.format {
             Format::S8 => self.play_inner::<i8>(pcm),
             Format::S16LE => self.play_inner::<i16>(pcm),
+            Format::S243LE => self.play_inner::<S24_3>(pcm),
+            Format::S24LE => self.play_inner::<S24_4>(pcm),
             Format::S32LE => self.play_inner::<i32>(pcm),
             Format::FloatLE => self.play_inner::<f32>(pcm),
             Format::Float64LE => self.play_inner::<f64>(pcm),
@@ -122,7 +127,7 @@ where
         }
     }
 
-    pub fn play_inner<S: IoFormat>(&mut self, pcm: PCM) -> Result<(), PlayError> {
+    fn play_inner<S: IoFormat>(&mut self, pcm: PCM) -> Result<(), PlayError> {
         let sample_size = size_of::<S>() * usize::from(self.reader.spec().channels);
 
         let reader = unsafe { self.reader.as_mut_inner() };
@@ -132,7 +137,7 @@ where
         loop {
             let buf = reader.fill_buf()?;
             if buf.is_empty() {
-                return Ok(());
+                return pcm.drain().map_err(Into::into);
             }
             let rem = sample_size - buf.len() % sample_size;
 
