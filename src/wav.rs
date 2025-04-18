@@ -8,7 +8,7 @@ use alsa::{
 use hound::WavReader;
 
 use crate::{
-    exotic_formats::{S24_3, S24_4},
+    exotic_formats::{S18_3, S20_3, S20_4, S24_3, S24_4},
     util::{UnsupportedFormatError, cvt_format, read_surplus},
 };
 
@@ -118,7 +118,10 @@ where
         match self.format {
             Format::S8 => self.play_inner::<i8>(pcm),
             Format::S16LE => self.play_inner::<i16>(pcm),
+            Format::S183LE => self.play_inner::<S18_3>(pcm),
+            Format::S203LE => self.play_inner::<S20_3>(pcm),
             Format::S243LE => self.play_inner::<S24_3>(pcm),
+            // Format::S20LE => self.play_inner::<S20_4>(pcm),
             Format::S24LE => self.play_inner::<S24_4>(pcm),
             Format::S32LE => self.play_inner::<i32>(pcm),
             Format::FloatLE => self.play_inner::<f32>(pcm),
@@ -145,8 +148,8 @@ where
                 let v = read_surplus(buf, rem, sample_size, reader)?;
                 let mut buf = &*v;
                 while !buf.is_empty() {
-                    let expected = v.len();
-                    let real = io.write(&v)?;
+                    let expected = buf.len();
+                    let real = io.write(buf)?;
                     if real == 0 {
                         return Err(PlayError::Io(io::const_error!(io::ErrorKind::WriteZero, "fail to write audio")));
                     } else if real < expected { // print a warning

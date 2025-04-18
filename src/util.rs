@@ -1,4 +1,4 @@
-use core::{error::Error, fmt, hint::likely, mem, ptr, slice};
+use core::{error::Error, fmt, hint::likely, ptr, slice};
 use std::io::{self, BufRead, BufReader};
 
 use alsa::pcm::Format;
@@ -63,7 +63,7 @@ impl fmt::Display for UnsupportedFormatError {
 
 impl Error for UnsupportedFormatError {}
 
-pub fn cvt_format(spec: WavSpec) -> Result<Format, UnsupportedFormatError> {
+pub const fn cvt_format(spec: WavSpec) -> Result<Format, UnsupportedFormatError> {
     match spec.sample_format {
         SampleFormat::Int => match (spec.bits_per_sample, spec.bytes_per_sample) {
             (8, 1) => Ok(Format::S8),
@@ -71,9 +71,7 @@ pub fn cvt_format(spec: WavSpec) -> Result<Format, UnsupportedFormatError> {
             (18, 3) => Ok(Format::S183LE),
             (20, 3) => Ok(Format::S203LE),
             (24, 3) => Ok(Format::S243LE),
-            (20, 4) => Ok(unsafe {
-                mem::transmute::<u8, alsa::pcm::Format>(alsa_sys::SND_PCM_FORMAT_S20_LE as u8)
-            }),
+            // (20, 4) => Ok(Format::S20LE), // https://github.com/diwic/alsa-rs/pull/133
             (24, 4) => Ok(Format::S24LE),
             (32, 4) => Ok(Format::S32LE),
             _ => Err(UnsupportedFormatError(spec)),
