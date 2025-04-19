@@ -4,6 +4,7 @@ use std::io::{self, BufRead, BufReader};
 use alsa::pcm::Format;
 use hound::{SampleFormat, WavSpec};
 
+#[inline]
 pub fn cvt_err(err: hound::Error) -> io::Error {
     match err {
         hound::Error::IoError(io) => io,
@@ -71,7 +72,7 @@ pub const fn cvt_format(spec: WavSpec) -> Result<Format, UnsupportedFormatError>
             (18, 3) => Ok(Format::S183LE),
             (20, 3) => Ok(Format::S203LE),
             (24, 3) => Ok(Format::S243LE),
-            // (20, 4) => Ok(Format::S20LE), // https://github.com/diwic/alsa-rs/pull/133
+            (20, 4) => Ok(Format::S20LE),
             (24, 4) => Ok(Format::S24LE),
             (32, 4) => Ok(Format::S32LE),
             _ => Err(UnsupportedFormatError(spec)),
@@ -91,24 +92,28 @@ pub enum PlayError {
 }
 
 impl From<alsa::Error> for PlayError {
+    #[inline]
     fn from(err: alsa::Error) -> Self {
         Self::Alsa(err)
     }
 }
 
 impl From<UnsupportedFormatError> for PlayError {
+    #[inline]
     fn from(err: UnsupportedFormatError) -> Self {
         Self::Format(err)
     }
 }
 
 impl From<io::Error> for PlayError {
+    #[inline]
     fn from(err: io::Error) -> Self {
         Self::Io(err)
     }
 }
 
 impl From<PlayError> for io::Error {
+    #[inline]
     fn from(err: PlayError) -> Self {
         match err {
             PlayError::Alsa(e) => Self::other(e),

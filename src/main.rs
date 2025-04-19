@@ -2,10 +2,10 @@
     io_const_error,
     io_const_error_internals,
     likely_unlikely,
+    never_type,
     slice_ptr_get,
 )]
 
-mod exotic_formats;
 mod util;
 mod wav;
 

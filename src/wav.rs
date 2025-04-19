@@ -3,14 +3,11 @@ use std::io::{self, BufRead, BufReader, Write};
 
 use alsa::{
     Direction, PCM, ValueOr,
-    pcm::{Access, Format, HwParams, IoFormat},
+    pcm::{Access, Format, HwParams, IO},
 };
 use hound::WavReader;
 
-use crate::{
-    exotic_formats::{S18_3, S20_3, S20_4, S24_3, S24_4},
-    util::{PlayError, UnsupportedFormatError, cvt_format, read_surplus},
-};
+use crate::util::{PlayError, UnsupportedFormatError, cvt_format, read_surplus};
 
 pub fn dump_header<R>(reader: &WavReader<R>)
 where
@@ -81,27 +78,13 @@ where
     pub fn play(&mut self) -> Result<(), PlayError> {
         let pcm = self.configure_pcm()?;
 
-        match self.format {
-            Format::S8 => self.play_inner::<i8>(pcm),
-            Format::S16LE => self.play_inner::<i16>(pcm),
-            Format::S183LE => self.play_inner::<S18_3>(pcm),
-            Format::S203LE => self.play_inner::<S20_3>(pcm),
-            Format::S243LE => self.play_inner::<S24_3>(pcm),
-            // Format::S20LE => self.play_inner::<S20_4>(pcm),
-            Format::S24LE => self.play_inner::<S24_4>(pcm),
-            Format::S32LE => self.play_inner::<i32>(pcm),
-            Format::FloatLE => self.play_inner::<f32>(pcm),
-            Format::Float64LE => self.play_inner::<f64>(pcm),
-            _ => return Err(PlayError::Format(UnsupportedFormatError(self.reader.spec())))
-        }
-    }
-
-    fn play_inner<S: IoFormat>(&mut self, pcm: PCM) -> Result<(), PlayError> {
-        let sample_size = size_of::<S>() * usize::from(self.reader.spec().channels);
+        let sample_size = unsafe {
+            alsa_sys::snd_pcm_format_size(self.format as i32, self.reader.spec().channels.into())
+        }.try_into().map_err(|_| PlayError::Io(io::const_error!(io::ErrorKind::InvalidInput, "sample size too large")))?;
 
         let reader = unsafe { self.reader.as_mut_inner() };
 
-        let mut io = pcm.io_checked::<S>()?;
+        let mut io = IO::<!>::new(&pcm);
 
         loop {
             let buf = reader.fill_buf()?;
