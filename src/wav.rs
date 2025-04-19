@@ -9,7 +9,7 @@ use hound::WavReader;
 
 use crate::{
     exotic_formats::{S18_3, S20_3, S20_4, S24_3, S24_4},
-    util::{UnsupportedFormatError, cvt_format, read_surplus},
+    util::{PlayError, UnsupportedFormatError, cvt_format, read_surplus},
 };
 
 pub fn dump_header<R>(reader: &WavReader<R>)
@@ -71,40 +71,6 @@ where
         pcm.prepare()?;
 
         Ok(pcm)
-    }
-}
-
-pub enum PlayError {
-    Alsa(alsa::Error),
-    Format(UnsupportedFormatError),
-    Io(io::Error),
-}
-
-impl From<alsa::Error> for PlayError {
-    fn from(err: alsa::Error) -> Self {
-        Self::Alsa(err)
-    }
-}
-
-impl From<UnsupportedFormatError> for PlayError {
-    fn from(err: UnsupportedFormatError) -> Self {
-        Self::Format(err)
-    }
-}
-
-impl From<io::Error> for PlayError {
-    fn from(err: io::Error) -> Self {
-        Self::Io(err)
-    }
-}
-
-impl From<PlayError> for io::Error {
-    fn from(err: PlayError) -> Self {
-        match err {
-            PlayError::Alsa(e) => Self::other(e),
-            PlayError::Format(e) => Self::other(e),
-            PlayError::Io(e) => e,
-        }
     }
 }
 

@@ -83,3 +83,37 @@ pub const fn cvt_format(spec: WavSpec) -> Result<Format, UnsupportedFormatError>
         },
     }
 }
+
+pub enum PlayError {
+    Alsa(alsa::Error),
+    Format(UnsupportedFormatError),
+    Io(io::Error),
+}
+
+impl From<alsa::Error> for PlayError {
+    fn from(err: alsa::Error) -> Self {
+        Self::Alsa(err)
+    }
+}
+
+impl From<UnsupportedFormatError> for PlayError {
+    fn from(err: UnsupportedFormatError) -> Self {
+        Self::Format(err)
+    }
+}
+
+impl From<io::Error> for PlayError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl From<PlayError> for io::Error {
+    fn from(err: PlayError) -> Self {
+        match err {
+            PlayError::Alsa(e) => Self::other(e),
+            PlayError::Format(e) => Self::other(e),
+            PlayError::Io(e) => e,
+        }
+    }
+}
