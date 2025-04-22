@@ -1,8 +1,9 @@
-use core::{error::Error, fmt, hint::likely, ptr, slice};
-use std::io::{self, BufRead, BufReader};
+use core::{error::Error, fmt, hint::unlikely};
+use std::io::{self, BufReader};
 
 use alsa::pcm::Format;
 use hound::{SampleFormat, WavSpec};
+use replace_with::replace_with_or_abort;
 
 #[inline]
 pub fn cvt_err(err: hound::Error) -> io::Error {
@@ -14,38 +15,18 @@ pub fn cvt_err(err: hound::Error) -> io::Error {
 }
 
 #[cold]
-pub fn read_surplus<R>(
-    buf: *const [u8],
-    rem: usize,
-    sample_size: usize,
-    reader: &mut BufReader<R>,
-) -> io::Result<Vec<u8>>
+pub fn rebuffer_if_need<R>(sample_size: usize, reader: &mut BufReader<R>)
 where
     R: io::Read,
 {
-    let m = buf.len();
-    let n = m + rem;
-    let mut v = Vec::with_capacity(n);
-    unsafe {
-        ptr::copy_nonoverlapping(buf.as_ptr(), v.as_mut_ptr(), m);
-        reader.consume(m);
-        reader.get_mut().read_exact(slice::from_raw_parts_mut(v.as_mut_ptr().add(m), rem))?;
-        v.set_len(n);
-    }
-
     let cap = reader.capacity();
     let crem = cap % sample_size;
-    if likely(crem == 0) {
-        return Ok(v);
+
+    if unlikely(crem != 0) {
+        let new_cap = cap + (sample_size - crem);
+        println!("buffer capacity ({cap}) is not multiple of sample size ({sample_size}), re-buffering with size {new_cap}.");
+        replace_with_or_abort(reader, |owned| BufReader::with_capacity(new_cap, owned.into_inner()));
     }
-
-    let new_cap = cap + (sample_size - crem);
-    println!("buffer capacity ({cap}) is not multiple of sample size ({sample_size}), re-buffering with size {new_cap}.");
-    let inner = unsafe { ptr::read(reader) };
-    let new = BufReader::with_capacity(new_cap, inner.into_inner());
-    unsafe { ptr::write(reader, new) };
-
-    Ok(v)
 }
 
 #[derive(Debug)]
@@ -64,24 +45,29 @@ impl fmt::Display for UnsupportedFormatError {
 
 impl Error for UnsupportedFormatError {}
 
-pub const fn cvt_format(spec: WavSpec) -> Result<Format, UnsupportedFormatError> {
-    match spec.sample_format {
+pub fn cvt_format(spec: WavSpec) -> Result<Format, PlayError> {
+    let format = match spec.sample_format {
         SampleFormat::Int => match (spec.bits_per_sample, spec.bytes_per_sample) {
-            (8, 1) => Ok(Format::S8),
-            (16, 2) => Ok(Format::S16LE),
-            (18, 3) => Ok(Format::S183LE),
-            (20, 3) => Ok(Format::S203LE),
-            (24, 3) => Ok(Format::S243LE),
-            (20, 4) => Ok(Format::S20LE),
-            (24, 4) => Ok(Format::S24LE),
-            (32, 4) => Ok(Format::S32LE),
-            _ => Err(UnsupportedFormatError(spec)),
+            (8, 1) => Format::S8,
+            (16, 2) => Format::S16LE,
+            (18, 3) => Format::S183LE,
+            (20, 3) => Format::S203LE,
+            (24, 3) => Format::S243LE,
+            (20, 4) => Format::S20LE,
+            (24, 4) => Format::S24LE,
+            (32, 4) => Format::S32LE,
+            _ => return Err(PlayError::Format(UnsupportedFormatError(spec))),
         },
         SampleFormat::Float => match (spec.bits_per_sample, spec.bytes_per_sample) {
-            (32, 4) => Ok(Format::FloatLE),
-            (64, 8) => Ok(Format::Float64LE),
-            _ => Err(UnsupportedFormatError(spec)),
+            (32, 4) => Format::FloatLE,
+            (64, 8) => Format::Float64LE,
+            _ => return Err(PlayError::Format(UnsupportedFormatError(spec))),
         },
+    };
+    if format.physical_width()? == i32::from(spec.bytes_per_sample) * 8 && format.width()? == spec.bits_per_sample.into() {
+        Ok(format)
+    } else {
+        Err(PlayError::Format(UnsupportedFormatError(spec)))
     }
 }
 

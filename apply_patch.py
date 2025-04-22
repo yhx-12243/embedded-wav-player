@@ -9,6 +9,8 @@ from requests import get
 from shutil import move, rmtree
 from subprocess import run
 from tempfile import NamedTemporaryFile
+from urllib3 import disable_warnings
+from urllib3.exceptions import InsecureRequestWarning
 
 def parse_args():
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
@@ -87,13 +89,13 @@ def patch_inner(patch, path, is_std=False):
 
 def patch_std(identifier, patch, stdlib):
     return (
-        f'\x1b[33m======== Applying \x1b[1;35m{identifier}\x1b[33m ========\x1b[0m',
+        f'\x1b[33m======== Applying \x1b[1;35m{identifier}\x1b[22;33m ========\x1b[0m',
         patch_inner(patch, stdlib / identifier, True),
     )
 
 def patch_cargo(identifier, patch, crates_io):
     return (
-        f'\x1b[36m======== Applying \x1b[1;35m{identifier}\x1b[36m ========\x1b[0m',
+        f'\x1b[36m======== Applying \x1b[1;35m{identifier}\x1b[22;36m ========\x1b[0m',
         patch_inner(patch, crates_io / identifier),
     )
 
@@ -102,7 +104,7 @@ def patch_git(identifier, patch, cargo_git):
     for d in cargo_git:
         if d.name.startswith(name) and (d / version).is_dir():
             return (
-                f'\x1b[32m======== Applying \x1b[1;35m{identifier}\x1b[32m ========\x1b[0m',
+                f'\x1b[32m======== Applying \x1b[1;35m{identifier}\x1b[22;32m ========\x1b[0m',
                 patch_inner(patch, d / version),
             )
     raise FileNotFoundError(f'Cannot find {identifier}')
@@ -140,12 +142,13 @@ def main():
         pass
 
     if args.std_patch_server:
+        disable_warnings(InsecureRequestWarning)
         for std in STD:
-            print(f'\x1b[35m======== Downloading \x1b[1;34m{std}\x1b[35m ========\x1b[0m\n')
+            print(f'\x1b[35m======== Downloading \x1b[1;34m{std}\x1b[22;35m ========\x1b[0m\n')
             url = args.std_patch_server + ('' if args.std_patch_server.endswith('/') else '/') + std + '.patch'
             delete = None
             try:
-                res = get(url)
+                res = get(url, verify=False)
                 target = patches / f'{std}.patch'
                 with NamedTemporaryFile(delete=False) as f:
                     delete = f.name
