@@ -4,10 +4,11 @@ use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
 use alsa::{
     Direction, PCM, ValueOr,
     pcm::{Access, Format, HwParams, IO},
+    mixer::{Mixer, SelemId},
 };
 use hound::WavReader;
 
-use crate::util::{PlayError, cvt_format, rebuffer_if_need};
+use crate::util::{PlayError, cvt_format, buffer_resize_if_need};
 
 pub fn dump_header<R>(reader: &WavReader<R>)
 where
@@ -30,15 +31,16 @@ where
 pub struct Player<R> {
     reader: WavReader<R>,
     format: Format,
+    volume: u8,  // 0-4 的音量级别
 }
 
 impl<R> Player<R>
 where
     R: io::Read,
 {
-    pub fn new(reader: WavReader<R>) -> Result<Self, PlayError> {
+    pub fn new(reader: WavReader<R>, volume: u8) -> Result<Self, PlayError> {
         let format = cvt_format(reader.spec())?;
-        Ok(Self { reader, format })
+        Ok(Self { reader, format, volume })
     }
 
     fn configure_pcm(&self) -> Result<PCM, alsa::Error> {
@@ -67,7 +69,33 @@ where
         // 设置硬件配置参数
         pcm.prepare()?;
 
+        // 设置音量
+        self.set_volume()?;
+
         Ok(pcm)
+    }
+
+    fn set_volume(&self) -> Result<(), alsa::Error> {
+        // 打开混音器
+        let mixer = Mixer::new("default", false)?;
+
+        // 获取第一个混音器元素
+        let selem_id = SelemId::new("Master", 0);
+        let elem = mixer.find_selem(&selem_id).ok_or(alsa::Error::new(
+            "set_volume: Mixer element not found",
+            -1,  // 使用 alsa::Error::UNKNOWN 或其他错误码
+        ))?;
+        
+        // 获取音量范围
+        // let (min, max) = elem.get_playback_volume_range();
+        
+        // 计算实际音量值 (0-4 映射到 0-512)
+        let volume_value  = i64::from(self.volume) * 128;
+        
+        // 设置所有通道的音量
+        elem.set_playback_volume_all(volume_value)?;
+        
+        Ok(())
     }
 }
 
@@ -92,7 +120,7 @@ where
         #[allow(clippy::seek_from_current)]
         reader.seek(SeekFrom::Current(0))?; // 重置 reader 指针并清空缓存
 
-        rebuffer_if_need(sample_size, reader);
+        buffer_resize_if_need(sample_size, reader);
 
         let mut io = IO::<()>::new(&pcm);
 

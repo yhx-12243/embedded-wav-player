@@ -15,7 +15,7 @@ pub fn cvt_err(err: hound::Error) -> io::Error {
 }
 
 #[cold]
-pub fn rebuffer_if_need<R>(sample_size: usize, reader: &mut BufReader<R>)
+pub fn buffer_resize_if_need<R>(sample_size: usize, reader: &mut BufReader<R>)
 where
     R: io::Read,
 {
