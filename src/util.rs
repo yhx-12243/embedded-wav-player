@@ -119,6 +119,7 @@ impl From<PlayError> for io::Error {
     }
 }
 
+#[derive(Debug)]
 pub enum PlayerEvent {
     Terminate,
     Move { offset: isize },
@@ -127,6 +128,7 @@ pub enum PlayerEvent {
     Resume,
 }
 
+#[derive(Debug)]
 pub enum MP3Event {
     PlayerEnd,
 }

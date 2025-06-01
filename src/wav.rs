@@ -119,7 +119,9 @@ where
         let mut io = IO::<()>::new(&pcm);
 
         loop {
-            match rx.recv()? {
+            let e = rx.recv()?;
+            tracing::info!("Receive event \x1b[33m{e:?}\x1b[0m [Stopping]");
+            match e {
                 PlayerEvent::Terminate => {
                     core::mem::forget(end_reporter);
                     return Ok(());
@@ -141,20 +143,26 @@ where
             }
             loop {
                 match rx.try_recv() {
-                    Ok(PlayerEvent::Terminate) => {
-                        core::mem::forget(end_reporter);
-                        return Ok(());
-                    }
-                    Ok(PlayerEvent::Move { offset }) => {
-                        let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second).clamp(begin, end);
-                        if pos != new_pos {
-                            pos = new_pos;
-                            reader.seek(SeekFrom::Start(pos));
+                    Ok(e) => {
+                        tracing::info!("Receive event \x1b[33m{e:?}\x1b[0m [Playing]");
+                        match e {
+                            Ok(PlayerEvent::Terminate) => {
+                                core::mem::forget(end_reporter);
+                                return Ok(());
+                            }
+                            Ok(PlayerEvent::Move { offset }) => {
+                                let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second).clamp(begin, end);
+                                if pos != new_pos {
+                                    pos = new_pos;
+                                    reader.seek(SeekFrom::Start(pos));
+                                }
+                            }
+                            Ok(PlayerEvent::SetMultipler { multiplier }) => self.multiplier = multiplier,
+                            Ok(PlayerEvent::Pause) => break,
+                            Ok(PlayerEvent::Resume) => (),
                         }
                     }
-                    Ok(PlayerEvent::SetMultipler { multiplier }) => self.multiplier = multiplier,
-                    Ok(PlayerEvent::Pause) => break,
-                    Ok(PlayerEvent::Resume) | Err(TryRecvError::Empty) => (),
+                    Err(TryRecvError::Empty) => (),
                     Err(TryRecvError::Disconnected) => return Err(RecvError.into()),
                 }
                 let buf = reader.fill_buf()?;

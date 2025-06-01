@@ -59,10 +59,7 @@ impl MP3 {
                 Err(path) => tracing::info!("\x1b[33m{}\x1b[0m is not a WAV file, skipped.", path.display()),
             }
         }
-        if songs.is_empty() {
-            tracing::warn!("No songs founds at {dir}");
-            return Err(NO_SONGS_FOUND);
-        }
+        if songs.is_empty() { return Err(NO_SONGS_FOUND); }
         tracing::info!("successfully load {} songs.", songs.len());
 
         let (mtx, mrx) = mpsc::channel();
@@ -118,6 +115,7 @@ impl MP3 {
         self.current_idx = idx;
         self.tx = Some(tx);
 
+        tracing::info!("switch to song #{idx}: \x1b[36m{}\x1b[0m", song.path.display());
         std::thread::spawn(move || player.play(self.mtx.clone(), rx));
 
         Ok(())
@@ -129,6 +127,7 @@ impl MP3 {
         loop {
             match self.mrx.recv() {
                 Ok(MP3Event::PlayerEnd) => {
+                    tracng::info!("song #{} play finished.", self.current_idx);
                     self.switch_song((self.current_idx + 1) % self.songs.len())
                 }
                 Err(e) => return Err(io::Error::other(e)),
