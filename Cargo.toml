@@ -8,6 +8,7 @@ alsa = "0.9.1"
 alsa-sys = "0.3.1"
 clap = { version = "4.5.38", features = ["derive", "unicode", "wrap_help", "env", "string", "unstable-v5"] }
 clap_derive = { version = "4.5.32", features = ["unstable-v5"] }
+env_logger = { git = "https://github.com/rust-cli/env_logger", default-features = false, features = ["auto-color", "humantime"] }
 hound = "3.5.1"
 log = { version = "0.4.27", features = ["release_max_level_info"] }
 replace_with = { version = "0.1.7", features = ["nightly", "panic_abort"] }

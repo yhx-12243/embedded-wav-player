@@ -1,7 +1,6 @@
 #![feature(io_const_error, io_const_error_internals, likely_unlikely)]
 
-use crate::mp3::MP3;
-
+mod log;
 mod mp3;
 mod util;
 mod wav;
@@ -24,8 +23,10 @@ struct Args {
 fn main() -> std::io::Result<!> {
     use clap::Parser;
     use hound::WavReader;
+    use mp3::MP3;
     use wav::Player;
 
+    env_logger::builder().format(log::format).init();
     let args = Args::parse();
 
     MP3::set_volume(args.volume)?;

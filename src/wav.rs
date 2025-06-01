@@ -11,7 +11,9 @@ use alsa::{
 };
 use hound::WavReader;
 
-use crate::util::{buffer_resize_if_need, cvt_format, MP3Event, PlayError, PlayerEvent, PlayerFeedback};
+use crate::util::{
+    MP3Event, PlayError, PlayerEvent, PlayerFeedback, buffer_resize_if_need, cvt_format,
+};
 
 pub fn dump_header<R>(reader: &WavReader<R>)
 where
