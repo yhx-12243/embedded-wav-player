@@ -1,5 +1,8 @@
 use core::{error::Error, fmt, hint::unlikely};
-use std::io::{self, BufReader};
+use std::{
+    io::{self, BufReader},
+    sync::mpsc::RecvError,
+};
 
 use alsa::pcm::Format;
 use hound::{SampleFormat, WavSpec};
@@ -98,6 +101,13 @@ impl From<io::Error> for PlayError {
     }
 }
 
+impl From<RecvError> for PlayError {
+    #[inline]
+    fn from(err: RecvError) -> Self {
+        Self::Io(io::Error::other(err))
+    }
+}
+
 impl From<PlayError> for io::Error {
     #[inline]
     fn from(err: PlayError) -> Self {
@@ -107,4 +117,16 @@ impl From<PlayError> for io::Error {
             PlayError::Io(e) => e,
         }
     }
+}
+
+pub enum PlayerEvent {
+    Terminate,
+    Move { offset: isize },
+    SetMultipler { multiplier: u8 },
+    Pause,
+    Resume,
+}
+
+pub enum MP3Event {
+    PlayerEnd,
 }

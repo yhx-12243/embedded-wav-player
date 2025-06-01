@@ -1,14 +1,17 @@
 use core::hint::unlikely;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
+use std::{
+    io::{self, BufRead, BufReader, Seek, SeekFrom, Write},
+    sync::mpsc::{Receiver, RecvError, TryRecvError},
+};
 
 use alsa::{
     Direction, PCM, ValueOr,
-    pcm::{Access, Format, HwParams, IO},
     mixer::{Mixer, SelemId},
+    pcm::{Access, Format, HwParams, IO},
 };
 use hound::WavReader;
 
-use crate::util::{PlayError, cvt_format, buffer_resize_if_need};
+use crate::util::{buffer_resize_if_need, cvt_format, MP3Event, PlayError, PlayerEvent, PlayerFeedback};
 
 pub fn dump_header<R>(reader: &WavReader<R>)
 where
@@ -31,16 +34,16 @@ where
 pub struct Player<R> {
     reader: WavReader<R>,
     format: Format,
-    volume: u8,  // 0-4 的音量级别
+    multipler: u8, // 倍速 * 0.5
 }
 
 impl<R> Player<R>
 where
     R: io::Read,
 {
-    pub fn new(reader: WavReader<R>, volume: u8) -> Result<Self, PlayError> {
+    pub fn new(reader: WavReader<R>, multipler: u8) -> Result<Self, PlayError> {
         let format = cvt_format(reader.spec())?;
-        Ok(Self { reader, format, volume })
+        Ok(Self { reader, format, multipler })
     }
 
     fn configure_pcm(&self) -> Result<PCM, alsa::Error> {
@@ -69,33 +72,18 @@ where
         // 设置硬件配置参数
         pcm.prepare()?;
 
-        // 设置音量
-        self.set_volume()?;
-
         Ok(pcm)
     }
+}
 
-    fn set_volume(&self) -> Result<(), alsa::Error> {
-        // 打开混音器
-        let mixer = Mixer::new("default", false)?;
+#[repr(transparent)]
+struct EndReporter(Sender<MP3Event>);
 
-        // 获取第一个混音器元素
-        let selem_id = SelemId::new("Master", 0);
-        let elem = mixer.find_selem(&selem_id).ok_or(alsa::Error::new(
-            "set_volume: Mixer element not found",
-            -1,  // 使用 alsa::Error::UNKNOWN 或其他错误码
-        ))?;
-        
-        // 获取音量范围
-        // let (min, max) = elem.get_playback_volume_range();
-        
-        // 计算实际音量值 (0-4 映射到 0-512)
-        let volume_value  = i64::from(self.volume) * 128;
-        
-        // 设置所有通道的音量
-        elem.set_playback_volume_all(volume_value)?;
-        
-        Ok(())
+impl Drop for EndReporter {
+    fn drop(&mut self) {
+        if let Err(e) = self.0.send(MP3Event::End) {
+            tracing::error!("Failed to send end event: {e}");
+        }
     }
 }
 
@@ -103,10 +91,12 @@ impl<R> Player<BufReader<R>>
 where
     R: io::Read + io::Seek,
 {
-    pub fn play(&mut self) -> Result<(), PlayError> {
+    pub fn play(&mut self, tx: Sender<MP3Event>, rx: Receiver<PlayerEvent>) -> Result<(), PlayError> {
         const SAMPLE_SIZE_TOO_LARGE: io::Error = io::const_error!(io::ErrorKind::InvalidInput, "sample size too large");
         const WRITE_ZERO: io::Error = io::const_error!(io::ErrorKind::WriteZero, "fail to write audio");
         const INVALID_RET: io::Error = io::const_error!(io::ErrorKind::InvalidInput, "invalid return values");
+
+        let end_reporter = EndReporter(tx);
 
         let pcm = self.configure_pcm()?;
 
@@ -114,45 +104,90 @@ where
             .checked_mul(self.reader.spec().channels)
             .map_or(const { Err(PlayError::Io(SAMPLE_SIZE_TOO_LARGE)) }, Ok)?
             .into();
+        let sample_rate = self.reader.spec().sample_rate;
+        let size_per_second = (sample_size as u64 * u64::from(sample_rate)).cast_signed();
         let mut v = vec![0; sample_size];
 
         let reader = unsafe { self.reader.as_mut_inner() };
         #[allow(clippy::seek_from_current)]
-        reader.seek(SeekFrom::Current(0))?; // 重置 reader 指针并清空缓存
+        let begin = reader.seek(SeekFrom::Current(0))?; // 重置 reader 指针并清空缓存
+        let end = begin + sample_size as u64 * u64::from(self.reader.len());
+        let mut pos = begin;
 
         buffer_resize_if_need(sample_size, reader);
 
         let mut io = IO::<()>::new(&pcm);
 
         loop {
-            let buf = reader.fill_buf()?;
-            if buf.is_empty() {
-                return pcm.drain().map_err(Into::into);
-            }
-            let l = buf.len();
-
-            if unlikely(l < sample_size) {
-                v[..l].copy_from_slice(buf);
-                reader.consume(l);
-                reader.get_mut().read_exact(&mut v[l..])?;
-                match io.write(&v)? {
-                    0 => return Err(PlayError::Io(WRITE_ZERO)),
-                    x if x == sample_size => continue,
-                    _ => return Err(PlayError::Io(INVALID_RET)),
+            match rx.recv()? {
+                PlayerEvent::Terminate => {
+                    core::mem::forget(end_reporter);
+                    return Ok(());
                 }
+                PlayerEvent::Move { offset } => {
+                    let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second).clamp(begin, end);
+                    if pos != new_pos {
+                        pos = new_pos;
+                        reader.seek(SeekFrom::Start(pos));
+                    }
+                    continue;
+                }
+                PlayerEvent::SetMultipler { multiplier } => {
+                    self.multiplier = multiplier;
+                    continue;
+                }
+                PlayerEvent::Pause => continue,
+                PlayerEvent::Resume => (),
             }
+            loop {
+                match rx.try_recv() {
+                    Ok(PlayerEvent::Terminate) => {
+                        core::mem::forget(end_reporter);
+                        return Ok(());
+                    }
+                    Ok(PlayerEvent::Move { offset }) => {
+                        let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second).clamp(begin, end);
+                        if pos != new_pos {
+                            pos = new_pos;
+                            reader.seek(SeekFrom::Start(pos));
+                        }
+                    }
+                    Ok(PlayerEvent::SetMultipler { multiplier }) => self.multiplier = multiplier,
+                    Ok(PlayerEvent::Pause) => break,
+                    Ok(PlayerEvent::Resume) | Err(TryRecvError::Empty) => (),
+                    Err(TryRecvError::Disconnected) => return Err(RecvError.into()),
+                }
+                let buf = reader.fill_buf()?;
+                if buf.is_empty() {
+                    return pcm.drain().map_err(Into::into);
+                }
+                let l = buf.len();
 
-            let expected = l;
-            let real = io.write(buf)?;
-            if real == 0 {
-                return Err(PlayError::Io(WRITE_ZERO));
-            } else if real < expected { // print a warning
-                println!("Not fully written. {real}/{expected} bytes written.");
-            } else if real > expected {
-                return Err(PlayError::Io(INVALID_RET));
+                if unlikely(l < sample_size) {
+                    v[..l].copy_from_slice(buf);
+                    reader.consume(l);
+                    pos += l;
+                    reader.get_mut().read_exact(&mut v[l..])?;
+                    match io.write(&v)? {
+                        0 => return Err(PlayError::Io(WRITE_ZERO)),
+                        x if x == sample_size => continue,
+                        _ => return Err(PlayError::Io(INVALID_RET)),
+                    }
+                }
+
+                let expected = l;
+                let real = io.write(buf)?;
+                if real == 0 {
+                    return Err(PlayError::Io(WRITE_ZERO));
+                } else if real < expected { // print a warning
+                    println!("Not fully written. {real}/{expected} bytes written.");
+                } else if real > expected {
+                    return Err(PlayError::Io(INVALID_RET));
+                }
+
+                reader.consume(real);
+                pos += real;
             }
-
-            reader.consume(real);
         }
     }
 }
