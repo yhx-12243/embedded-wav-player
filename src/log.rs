@@ -22,7 +22,7 @@ fn pad(s: &str, additional: usize) -> String {
     format!("{TARGET_STYLE}{s: <0$}{TARGET_STYLE:#}", s.len() + additional)
 }
 
-fn format(buf: &mut Formatter, record: &Record<'_>) -> std::io::Result<()> {
+pub fn format(buf: &mut Formatter, record: &Record<'_>) -> std::io::Result<()> {
     const SPACES: &str = "                                                                                                                                ";
 
     const FMT: ConfigurableFormat = ConfigurableFormat {

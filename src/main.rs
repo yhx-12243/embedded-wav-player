@@ -1,4 +1,4 @@
-#![feature(io_const_error, io_const_error_internals, likely_unlikely)]
+#![feature(io_const_error, io_const_error_internals, likely_unlikely, never_type)]
 
 mod log;
 mod mp3;
@@ -22,15 +22,13 @@ struct Args {
 
 fn main() -> std::io::Result<!> {
     use clap::Parser;
-    use hound::WavReader;
     use mp3::MP3;
-    use wav::Player;
 
     env_logger::builder().format(log::format).init();
     let args = Args::parse();
 
-    MP3::set_volume(args.volume)?;
-    let mp3 = MP3::load(args.file)?;
+    MP3::set_volume(args.volume).map_err(std::io::Error::other)?;
+    let mut mp3 = MP3::load(args.dir)?;
 
     mp3.start_loop()
 }

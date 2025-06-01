@@ -1,19 +1,16 @@
 use core::hint::unlikely;
 use std::{
     io::{self, BufRead, BufReader, Seek, SeekFrom, Write},
-    sync::mpsc::{Receiver, RecvError, TryRecvError},
+    sync::mpsc::{Receiver, RecvError, Sender, TryRecvError},
 };
 
 use alsa::{
     Direction, PCM, ValueOr,
-    mixer::{Mixer, SelemId},
     pcm::{Access, Format, HwParams, IO},
 };
 use hound::WavReader;
 
-use crate::util::{
-    MP3Event, PlayError, PlayerEvent, PlayerFeedback, buffer_resize_if_need, cvt_format,
-};
+use crate::util::{MP3Event, PlayError, PlayerEvent, buffer_resize_if_need, cvt_format};
 
 pub fn dump_header<R>(reader: &WavReader<R>)
 where
@@ -36,16 +33,16 @@ where
 pub struct Player<R> {
     reader: WavReader<R>,
     format: Format,
-    multipler: u8, // 倍速 * 0.5
+    multiplier: u8, // 倍速 * 0.5
 }
 
 impl<R> Player<R>
 where
     R: io::Read,
 {
-    pub fn new(reader: WavReader<R>, multipler: u8) -> Result<Self, PlayError> {
+    pub fn new(reader: WavReader<R>, multiplier: u8) -> Result<Self, PlayError> {
         let format = cvt_format(reader.spec())?;
-        Ok(Self { reader, format, multipler })
+        Ok(Self { reader, format, multiplier })
     }
 
     fn configure_pcm(&self) -> Result<PCM, alsa::Error> {
@@ -83,7 +80,7 @@ struct EndReporter(Sender<MP3Event>);
 
 impl Drop for EndReporter {
     fn drop(&mut self) {
-        if let Err(e) = self.0.send(MP3Event::End) {
+        if let Err(e) = self.0.send(MP3Event::PlayerEnd) {
             tracing::error!("Failed to send end event: {e}");
         }
     }
@@ -107,13 +104,14 @@ where
             .map_or(const { Err(PlayError::Io(SAMPLE_SIZE_TOO_LARGE)) }, Ok)?
             .into();
         let sample_rate = self.reader.spec().sample_rate;
+        let num_samples = self.reader.len();
         let size_per_second = (sample_size as u64 * u64::from(sample_rate)).cast_signed();
         let mut v = vec![0; sample_size];
 
         let reader = unsafe { self.reader.as_mut_inner() };
         #[allow(clippy::seek_from_current)]
         let begin = reader.seek(SeekFrom::Current(0))?; // 重置 reader 指针并清空缓存
-        let end = begin + sample_size as u64 * u64::from(self.reader.len());
+        let end = begin + sample_size as u64 * u64::from(num_samples);
         let mut pos = begin;
 
         buffer_resize_if_need(sample_size, reader);
@@ -132,11 +130,11 @@ where
                     let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second).clamp(begin, end);
                     if pos != new_pos {
                         pos = new_pos;
-                        reader.seek(SeekFrom::Start(pos));
+                        reader.seek(SeekFrom::Start(pos))?;
                     }
                     continue;
                 }
-                PlayerEvent::SetMultipler { multiplier } => {
+                PlayerEvent::SetMultiplier { multiplier } => {
                     self.multiplier = multiplier;
                     continue;
                 }
@@ -148,20 +146,20 @@ where
                     Ok(e) => {
                         tracing::info!("Receive event \x1b[33m{e:?}\x1b[0m [Playing]");
                         match e {
-                            Ok(PlayerEvent::Terminate) => {
+                            PlayerEvent::Terminate => {
                                 core::mem::forget(end_reporter);
                                 return Ok(());
                             }
-                            Ok(PlayerEvent::Move { offset }) => {
+                            PlayerEvent::Move { offset } => {
                                 let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second).clamp(begin, end);
                                 if pos != new_pos {
                                     pos = new_pos;
-                                    reader.seek(SeekFrom::Start(pos));
+                                    reader.seek(SeekFrom::Start(pos))?;
                                 }
                             }
-                            Ok(PlayerEvent::SetMultipler { multiplier }) => self.multiplier = multiplier,
-                            Ok(PlayerEvent::Pause) => break,
-                            Ok(PlayerEvent::Resume) => (),
+                            PlayerEvent::SetMultiplier { multiplier } => self.multiplier = multiplier,
+                            PlayerEvent::Pause => break,
+                            PlayerEvent::Resume => (),
                         }
                     }
                     Err(TryRecvError::Empty) => (),
@@ -176,7 +174,7 @@ where
                 if unlikely(l < sample_size) {
                     v[..l].copy_from_slice(buf);
                     reader.consume(l);
-                    pos += l;
+                    pos += l as u64;
                     reader.get_mut().read_exact(&mut v[l..])?;
                     match io.write(&v)? {
                         0 => return Err(PlayError::Io(WRITE_ZERO)),
@@ -196,7 +194,7 @@ where
                 }
 
                 reader.consume(real);
-                pos += real;
+                pos += real as u64;
             }
         }
     }

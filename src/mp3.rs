@@ -1,14 +1,14 @@
 use std::{
     fs, io,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
-    thread::JoinHandle,
 };
 
-use hound::WavReader;
+use alsa::{Mixer, mixer::SelemId};
+use hound::{WavReader, WavSpec};
 
 use crate::{
-    util::{MP3Event, PlayerEvent, PlayerFeedback, cvt_err},
+    util::{MP3Event, PlayerEvent, cvt_err},
     wav::Player,
 };
 
@@ -21,10 +21,10 @@ pub struct Song {
 
 impl Song {
     pub fn load(path: PathBuf) -> Result<Self, PathBuf> {
-        let tmp_reader = WavReader::open(&path).map_err(cvt_err)?;
+        let Ok(tmp_reader) = WavReader::open(&path) else { return Err(path) };
         let spec = tmp_reader.spec();
         let num_samples = tmp_reader.len();
-        Ok(Song {
+        Ok(Self {
             path,
             spec,
             num_samples,
@@ -35,7 +35,7 @@ impl Song {
 pub struct MP3 {
     songs: Vec<Song>,
     current_idx: usize,
-    multipler: u8, // 倍速 * 0.5
+    multiplier: u8, // 倍速 * 0.5
     tx: Option<Sender<PlayerEvent>>,
     mtx: Sender<MP3Event>,
     mrx: Receiver<MP3Event>,
@@ -66,7 +66,7 @@ impl MP3 {
         Ok(Self {
             songs,
             current_idx: usize::MAX,
-            multipler: 2,
+            multiplier: 2,
             tx: None,
             mtx,
             mrx,
@@ -97,18 +97,20 @@ impl MP3 {
     }
 
     pub fn switch_song(&mut self, idx: usize) -> io::Result<()> {
-        const OUT_OF_BOUNDS: io::Error =
-            io::const_error!(io::ErrorKind::NotFound, "Song index out of bounds");
+        const OUT_OF_BOUNDS: io::Error = io::const_error!(io::ErrorKind::NotFound, "Song index out of bounds");
 
-        if idx == current_idx {
+        if idx == self.current_idx {
             return Ok(());
         }
 
         let song = self.songs.get(idx).ok_or(OUT_OF_BOUNDS)?;
-        let player = Player::new(WavReader::open(song.path)?, self.multiplier).map_err(cvt_err)?;
+        let mut player = Player::new(
+            WavReader::open(&song.path).map_err(cvt_err)?,
+            self.multiplier,
+        )?;
 
         if let Some(tx) = self.tx.take() {
-            let _ = tx.send(PlayerEvent::Terminiate);
+            let _ = tx.send(PlayerEvent::Terminate);
         }
 
         let (tx, rx) = mpsc::channel();
@@ -116,7 +118,10 @@ impl MP3 {
         self.tx = Some(tx);
 
         tracing::info!("switch to song #{idx}: \x1b[36m{}\x1b[0m", song.path.display());
-        std::thread::spawn(move || player.play(self.mtx.clone(), rx));
+        {
+            let tx = self.mtx.clone();
+            std::thread::spawn(move || player.play(tx, rx));
+        }
 
         Ok(())
     }
@@ -127,8 +132,8 @@ impl MP3 {
         loop {
             match self.mrx.recv() {
                 Ok(MP3Event::PlayerEnd) => {
-                    tracng::info!("song #{} play finished.", self.current_idx);
-                    self.switch_song((self.current_idx + 1) % self.songs.len())
+                    tracing::info!("song #{} play finished.", self.current_idx);
+                    self.switch_song((self.current_idx + 1) % self.songs.len())?;
                 }
                 Err(e) => return Err(io::Error::other(e)),
             }

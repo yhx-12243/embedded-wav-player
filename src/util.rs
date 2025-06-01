@@ -123,7 +123,7 @@ impl From<PlayError> for io::Error {
 pub enum PlayerEvent {
     Terminate,
     Move { offset: isize },
-    SetMultipler { multiplier: u8 },
+    SetMultiplier { multiplier: u8 },
     Pause,
     Resume,
 }
