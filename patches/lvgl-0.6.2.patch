@@ -1,4 +1,4 @@
-diff --git a/src/display.rs b/src/display.rs
+diff --git a/src/display.rs b/lzgl-0.6.2/src/display.rs
 index 8e8f510..a27b1dc 100644
 --- a/src/display.rs
 +++ b/src/display.rs
@@ -17,3 +17,16 @@ index 8e8f510..a27b1dc 100644
          disp: NonNull<lvgl_sys::lv_disp_t>,
          drop: Option<unsafe extern "C" fn()>,
      ) -> Self {
+diff --git a/src/widgets/label.rs b/lzgl-0.6.2/src/widgets/label.rs
+index 7d4e08d..5bb8652 100644
+--- a/src/widgets/label.rs
++++ b/src/widgets/label.rs
+@@ -4,7 +4,7 @@
+ mod alloc_imp {
+     use crate::widgets::Label;
+     //use crate::LvError;
+-    use cstr_core::CString;
++    use alloc::ffi::CString;
+     //use core::convert::TryFrom;
+ 
+     impl<S: AsRef<str>> From<S> for Label {

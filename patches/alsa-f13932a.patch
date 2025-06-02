@@ -1,3 +1,29 @@
+diff --git a/src/error.rs b/src/error.rs
+index ec45498..8455cc0 100644
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -60,7 +60,7 @@ pub fn from_code(func: &'static str, r: c_int) -> Result<c_int> {
+ }
+ 
+ impl Error {
+-    pub fn new(func: &'static str, res: c_int) -> Error {
++    pub const fn new(func: &'static str, res: c_int) -> Error {
+         Self(func, res)
+     }
+ 
+diff --git a/src/mixer.rs b/src/mixer.rs
+index a08ea59..c776fbb 100644
+--- a/src/mixer.rs
++++ b/src/mixer.rs
+@@ -128,7 +128,7 @@ impl ops::SubAssign for MilliBel {
+ /// Wraps [snd_mixer_elem_t](http://www.alsa-project.org/alsa-doc/alsa-lib/group___mixer.html)
+ #[derive(Copy, Clone, Debug)]
+ pub struct Elem<'a>{
+-    handle: *mut alsa::snd_mixer_elem_t,
++    pub handle: *mut alsa::snd_mixer_elem_t,
+     _mixer: &'a Mixer
+ }
+ 
 diff --git a/src/pcm.rs b/src/pcm.rs
 index e0f7643..4c15061 100644
 --- a/src/pcm.rs

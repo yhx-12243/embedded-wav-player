@@ -1,5 +1,5 @@
 use core::{error::Error, fmt, hint::unlikely};
-use std::{io::{self, SeekFrom}, sync::mpsc::RecvError};
+use std::{io, sync::mpsc::RecvError};
 
 use alsa::pcm::Format;
 use hound::{SampleFormat, WavSpec};
@@ -133,8 +133,8 @@ pub enum MP3Event {
     PlayerEnd { player: Handle },
     Close,
     Dispatch { sub: PlayerEvent },
-    SwitchSong { seek: SeekFrom },
-    SetVolume { volume: u8 },
+    SwitchSong { seek: io::SeekFrom },
+    SetVolume { volume: i32 },
 }
 
 impl From<PlayerEvent> for MP3Event {
@@ -144,7 +144,56 @@ impl From<PlayerEvent> for MP3Event {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum GUIEvent {
+    SwitchSong { index: usize, handle: Handle },
+    ProgressAccess { access: Option<ProgressAccess>, handle: Handle },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ProgressAccess {
+    pub begin: *const u64,
+    pub pos: *const u64,
+    pub end: *const u64,
+    pub size_per_second: *const u64,
+}
+
+unsafe impl Send for ProgressAccess {}
+
+impl ProgressAccess {
+    fn i(mut num: u64, den: u64) -> String {
+        use fmt::Write;
+
+        let mut ret = String::with_capacity(10); // 12:34.567\0
+        let min = num / (den * 60);
+        let _ = write!(&mut ret, "{min}:");
+        num %= den * 60;
+        let sec = num / den;
+        let _ = write!(&mut ret, "{sec:02}.");
+        num %= den;
+        let ms = num * 1000 / den;
+        let _ = write!(&mut ret, "{ms:03}");
+        ret
+    }
+
+    #[inline]
+    pub fn p(&self) -> u64 {
+        (unsafe { *self.pos - *self.begin } << 20) / unsafe { *self.end - *self.begin }
+    }
+
+    #[inline]
+    pub fn l(&self) -> String {
+        Self::i(unsafe { *self.pos - *self.begin }, unsafe { *self.size_per_second })
+    }
+
+    #[inline]
+    pub fn n(&self) -> String {
+        Self::i(unsafe { *self.end - *self.begin }, unsafe { *self.size_per_second })
+    }
+}
+
 #[inline(always)]
+/// It returns the same value for a pair of (tx, rx), returns different value for different pairs.
 pub const fn get_channel_handle<T>(chan: *const T) -> Handle {
     unsafe { hack::get_channel_handle_inner(chan.cast()) }
 }

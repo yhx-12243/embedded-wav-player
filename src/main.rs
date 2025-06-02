@@ -38,13 +38,18 @@ fn main() -> std::io::Result<()> {
     env_logger::builder().format(log::format).init();
     let args = Args::parse();
 
-    MP3::set_volume(args.volume).map_err(std::io::Error::other)?;
-    let mp3 = MP3::load(args.dir)?;
+    let mut mp3 = MP3::load(args.dir)?;
+    mp3.set_volume(i32::from(args.volume) * 128).map_err(std::io::Error::other)?;
     let mtx = mp3.mtx.clone();
 
-    let mut gui = GUI::new(mtx).map_err(gui::cvt_lvgl_err)?;
-    gui.draw().map_err(gui::cvt_lvgl_err)?;
+    lvgl::init();
 
-    std::thread::spawn(move || gui.main_loop());
-    mp3.main_loop()
+    let mut gui = GUI::new(mtx).map_err(gui::cvt_lvgl_err)?;
+    tracing::info!("GUI initialized.");
+    gui.draw(mp3.get_songs()).map_err(gui::cvt_lvgl_err)?;
+    tracing::info!("GUI drawing finished.");
+
+    let (gtx, grx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || gui.main_loop(grx));
+    mp3.main_loop(gtx)
 }

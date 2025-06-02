@@ -1,0 +1,22 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index ee72ff7..79f8e43 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -353,7 +353,7 @@ impl Rusty for LvType {
+         match TYPE_MAPPINGS.get(self.literal_name.as_str()) {
+             Some(name) => {
+                 let val = if self.is_str() {
+-                    quote!(&cstr_core::CStr)
++                    quote!(&core::ffi::CStr)
+                 } else if self.literal_name.contains("lv_") {
+                     let ident = format_ident!("{}", name);
+                     quote!(&#ident)
+@@ -591,7 +591,7 @@ mod test {
+         let code = label_set_text.code(&parent_widget).unwrap();
+         let expected_code = quote! {
+ 
+-            pub fn set_text(&mut self, text: &cstr_core::CStr) -> crate::LvResult<()> {
++            pub fn set_text(&mut self, text: &core::ffi::CStr) -> crate::LvResult<()> {
+                 unsafe {
+                     lvgl_sys::lv_label_set_text(
+                         self.core.raw()?.as_mut(),

@@ -1,15 +1,13 @@
+use core::hint::unlikely;
 use std::{
-    fs,
-    io::{self, SeekFrom},
-    path::PathBuf,
-    sync::mpsc::{Receiver, Sender, channel},
+    fs, io::{self, SeekFrom}, path::{Path, PathBuf}, sync::mpsc::{channel, Receiver, Sender}
 };
 
 use alsa::{Mixer, mixer::SelemId};
 use hound::{WavReader, WavSpec};
 
 use crate::{
-    util::{Handle, MP3Event, PlayerEvent, cvt_err, get_channel_handle},
+    util::{GUIEvent, Handle, MP3Event, PlayerEvent, cvt_err, get_channel_handle},
     wav::Player,
 };
 
@@ -21,6 +19,11 @@ pub struct Song {
 }
 
 impl Song {
+    #[inline]
+    pub fn get_path(&self) -> &Path {
+        &self.path
+    }
+
     pub fn load(path: PathBuf) -> Result<Self, PathBuf> {
         let Ok(tmp_reader) = WavReader::open(&path) else { return Err(path) };
         let spec = tmp_reader.spec();
@@ -37,6 +40,8 @@ pub struct MP3 {
     songs: Vec<Song>,
     current_idx: usize,
     multiplier: u8, // 倍速 * 0.5
+    mixer: Mixer,
+    elem: *mut alsa_sys::snd_mixer_elem_t,
     tx: Option<Sender<PlayerEvent>>,
     pub mtx: Sender<MP3Event>,
     mrx: Receiver<MP3Event>,
@@ -51,11 +56,15 @@ impl Drop for MP3 {
 }
 
 impl MP3 {
+    #[inline]
+    pub fn get_songs(&self) -> &[Song] {
+        &self.songs
+    }
+
     pub fn load(dir: PathBuf) -> io::Result<Self> {
-        const NO_SONGS_FOUND: io::Error = io::const_error!(
-            io::ErrorKind::NotFound,
-            "No songs found in the specified directory"
-        );
+        const NO_SONGS_FOUND: io::Error = io::const_error!(io::ErrorKind::NotFound, "No songs found in the specified directory");
+
+        let mixer = Mixer::new("default", false).map_err(io::Error::other)?;
 
         let mut songs = Vec::new();
         for entry in fs::read_dir(&dir)? {
@@ -69,45 +78,40 @@ impl MP3 {
             }
         }
         if songs.is_empty() { return Err(NO_SONGS_FOUND); }
-        tracing::info!("successfully load {} songs.", songs.len());
+        tracing::info!("successfully load \x1b[36m{}\x1b[0m songs.", songs.len());
+        songs.sort_unstable_by(|lhs, rhs| lhs.path.as_os_str().cmp(rhs.path.as_os_str()));
 
         let (mtx, mrx) = channel();
         Ok(Self {
             songs,
             current_idx: usize::MAX,
             multiplier: 2,
+            mixer,
+            elem: core::ptr::null_mut(),
             tx: None,
             mtx,
             mrx,
         })
     }
 
-    pub fn set_volume(volume: u8) -> alsa::Result<()> {
-        // 打开混音器
-        let mixer = Mixer::new("default", false)?;
+    pub fn set_volume(&mut self, volume: i32) -> alsa::Result<()> {
+        const E: alsa::Error = alsa::Error::new("set_volume failed", -1);
 
-        // 获取第一个混音器元素
-        let selem_id = SelemId::new("Master", 0);
-        let elem = mixer.find_selem(&selem_id).ok_or_else(|| alsa::Error::new(
-            "set_volume: Mixer element not found",
-            -1, // 使用 alsa::Error::UNKNOWN 或其他错误码
-        ))?;
+        if unlikely(self.elem.is_null()) {
+            let selem_id = SelemId::new("Master", 0);
+            self.elem = self.mixer.find_selem(&selem_id).ok_or(E)?.handle;
+        }
 
-        // 获取音量范围
-        // let (min, max) = elem.get_playback_volume_range();
+        let ret = unsafe { alsa_sys::snd_mixer_selem_set_playback_volume_all(self.elem, volume) };
+        if ret < 0 {
+            return Err(E);
+        }
 
-        // 计算实际音量值 (0-4 映射到 0-512)
-        let volume_value = i64::from(volume) * 128;
-
-        // 设置所有通道的音量
-        elem.set_playback_volume_all(volume_value)?;
-
-        tracing::info!("Set volume to {volume}/4");
-
+        tracing::info!("Set volume to {}%", volume as f64 * 0.1953125);
         Ok(())
     }
 
-    pub fn switch_song(&mut self, idx: usize) -> io::Result<()> {
+    fn switch_song(&mut self, idx: usize, gtx: Sender<GUIEvent>) -> io::Result<()> {
         const OUT_OF_BOUNDS: io::Error = io::const_error!(io::ErrorKind::NotFound, "Song index out of bounds");
 
         if idx == self.current_idx {
@@ -125,13 +129,14 @@ impl MP3 {
         }
 
         let (tx, rx) = channel();
+        let _ = gtx.send(GUIEvent::SwitchSong { index: idx, handle: get_channel_handle(&tx) });
         self.current_idx = idx;
         self.tx = Some(tx);
 
         tracing::info!("switch to song #{idx}: \x1b[36m{}\x1b[0m", song.path.file_name().unwrap_or(song.path.as_os_str()).display());
         {
-            let tx = self.mtx.clone();
-            std::thread::spawn(move || player.play(tx, rx).unwrap());
+            let mtx = self.mtx.clone();
+            std::thread::spawn(move || player.play(mtx, gtx, rx).unwrap());
         }
 
         Ok(())
@@ -145,8 +150,8 @@ impl MP3 {
         }
     }
 
-    pub fn main_loop(mut self) -> io::Result<()> {
-        self.switch_song(0)?;
+    pub fn main_loop(mut self, gtx: Sender<GUIEvent>) -> io::Result<()> {
+        self.switch_song(0, gtx.clone())?;
 
         loop {
             match self.mrx.recv() {
@@ -154,7 +159,7 @@ impl MP3 {
                     let cur_handle = self.get_current_handle();
                     if cur_handle == player {
                         tracing::info!("song #{} play finished, switch to next song.", self.current_idx);
-                        self.switch_song((self.current_idx + 1) % self.songs.len())?;
+                        self.switch_song((self.current_idx + 1) % self.songs.len(), gtx.clone())?;
                         if let Some(tx) = &self.tx {
                             let _ = tx.send(PlayerEvent::Resume);
                         }
@@ -178,12 +183,12 @@ impl MP3 {
                         SeekFrom::Current(offset) => (self.current_idx.cast_signed() + offset as isize).rem_euclid(self.songs.len().cast_signed()).cast_unsigned(),
                         SeekFrom::End(offset) => (offset as isize).rem_euclid(self.songs.len().cast_signed()).cast_unsigned(),
                     };
-                    self.switch_song(idx)?;
+                    self.switch_song(idx, gtx.clone())?;
                     if let Some(tx) = &self.tx {
                         let _ = tx.send(PlayerEvent::Resume);
                     }
                 }
-                Ok(MP3Event::SetVolume { volume }) => Self::set_volume(volume).map_err(io::Error::other)?,
+                Ok(MP3Event::SetVolume { volume }) => self.set_volume(volume).map_err(io::Error::other)?,
                 Err(e) => return Err(io::Error::other(e)),
             }
         }

@@ -11,7 +11,7 @@ clap_derive = { version = "4.5.32", features = ["unstable-v5"] }
 env_logger = { git = "https://github.com/rust-cli/env_logger", default-features = false, features = ["auto-color", "humantime"] }
 hound = "3.5.1"
 log = { version = "0.4.27", features = ["release_max_level_info"] }
-lvgl = { version = "0.6.2", features = ["rust_timer"] }
+lvgl = { version = "0.6.2", features = ["lvgl_alloc", "rust_timer", "unsafe_no_autoinit"] }
 lvgl-sys = "0.6.2"
 replace_with = { version = "0.1.8", features = ["nightly", "panic_abort"] }
 tracing = { version = "0.1.41", features = ["log", "release_max_level_info"] }
