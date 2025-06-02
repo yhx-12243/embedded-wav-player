@@ -11,7 +11,7 @@ use alsa::{
 use hound::WavReader;
 
 use crate::util::{
-    Handle, MP3Event, MP3EventPayload, PlayError, PlayerEvent, buffer_resize_if_need, cvt_format,
+    Handle, MP3Event, PlayError, PlayerEvent, buffer_resize_if_need, cvt_format,
     get_channel_handle,
 };
 
@@ -82,7 +82,7 @@ struct EndReporter(Sender<MP3Event>, Handle);
 
 impl Drop for EndReporter {
     fn drop(&mut self) {
-        match self.0.send(MP3Event { handle: self.1, payload: MP3EventPayload::PlayerEnd }) {
+        match self.0.send(MP3Event::PlayerEnd { player: self.1 }) {
             Ok(()) => tracing::info!("Player (with handle \x1b[33m{}\x1b[0m) ends.", self.1),
             Err(e) => tracing::error!("Failed to send end event: {e}"),
         }

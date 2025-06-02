@@ -6,6 +6,7 @@
 export DEP_LV_CONFIG_PATH=$(pwd)/lvgl
 export CFLAGS=-I/opt/st/myir/3.1-snapshot/sysroots/cortexa7t2hf-neon-vfpv4-ostl-linux-gnueabi/usr/include
 export BINDGEN_EXTRA_CLANG_ARGS=-I/opt/st/myir/3.1-snapshot/sysroots/cortexa7t2hf-neon-vfpv4-ostl-linux-gnueabi/usr/include
+export LVGL_INCLUDE=/opt/st/myir/3.1-snapshot/sysroots/cortexa7t2hf-neon-vfpv4-ostl-linux-gnueabi/usr/include
 export LVGL_LINK=
 ```
 

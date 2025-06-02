@@ -1,5 +1,6 @@
 use std::{
-    fs, io,
+    fs,
+    io::{self, SeekFrom},
     path::PathBuf,
     sync::mpsc::{Receiver, Sender, channel},
 };
@@ -8,7 +9,7 @@ use alsa::{Mixer, mixer::SelemId};
 use hound::{WavReader, WavSpec};
 
 use crate::{
-    util::{Handle, MP3Event, MP3EventPayload, PlayerEvent, cvt_err, get_channel_handle},
+    util::{Handle, MP3Event, PlayerEvent, cvt_err, get_channel_handle},
     wav::Player,
 };
 
@@ -101,6 +102,8 @@ impl MP3 {
         // 设置所有通道的音量
         elem.set_playback_volume_all(volume_value)?;
 
+        tracing::info!("Set volume to {volume}/4");
+
         Ok(())
     }
 
@@ -147,28 +150,40 @@ impl MP3 {
 
         loop {
             match self.mrx.recv() {
-                Ok(MP3Event { handle, payload: MP3EventPayload::PlayerEnd }) => {
+                Ok(MP3Event::PlayerEnd { player }) => {
                     let cur_handle = self.get_current_handle();
-                    if cur_handle == handle {
+                    if cur_handle == player {
                         tracing::info!("song #{} play finished, switch to next song.", self.current_idx);
                         self.switch_song((self.current_idx + 1) % self.songs.len())?;
                         if let Some(tx) = &self.tx {
                             let _ = tx.send(PlayerEvent::Resume);
                         }
                     } else {
-                        tracing::info!("Stale end event: cur_handle = {cur_handle}, event_handle = {handle}");
+                        tracing::info!("Stale end event: cur_handle = {cur_handle}, event_handle = {player}");
                     }
                 }
-                Ok(MP3Event { payload: MP3EventPayload::Close, .. }) => {
+                Ok(MP3Event::Close) => {
                     tracing::info!("Received close event, exiting main loop.");
                     return Ok(());
                 }
-                Ok(MP3Event { payload: MP3EventPayload::Dispatch { sub }, .. }) => {
-                    tracing::info!("Received user event {sub}, dispatch to player.");
+                Ok(MP3Event::Dispatch { sub }) => {
+                    tracing::info!("Received user event {sub:?}, dispatch to player.");
                     if let Some(tx) = &self.tx {
                         let _ = tx.send(sub);
                     }
                 }
+                Ok(MP3Event::SwitchSong { seek }) => {
+                    let idx = match seek {
+                        SeekFrom::Start(idx) => (idx as usize) % self.songs.len(),
+                        SeekFrom::Current(offset) => (self.current_idx.cast_signed() + offset as isize).rem_euclid(self.songs.len().cast_signed()).cast_unsigned(),
+                        SeekFrom::End(offset) => (offset as isize).rem_euclid(self.songs.len().cast_signed()).cast_unsigned(),
+                    };
+                    self.switch_song(idx)?;
+                    if let Some(tx) = &self.tx {
+                        let _ = tx.send(PlayerEvent::Resume);
+                    }
+                }
+                Ok(MP3Event::SetVolume { volume }) => Self::set_volume(volume).map_err(io::Error::other)?,
                 Err(e) => return Err(io::Error::other(e)),
             }
         }

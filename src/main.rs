@@ -1,9 +1,12 @@
 #![feature(
     debug_closure_helpers,
+    fn_traits,
     io_const_error,
     io_const_error_internals,
     likely_unlikely,
     never_type,
+    sync_unsafe_cell,
+    unboxed_closures,
 )]
 
 mod gui;
@@ -36,12 +39,12 @@ fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
     MP3::set_volume(args.volume).map_err(std::io::Error::other)?;
-    let mut mp3 = MP3::load(args.dir)?;
+    let mp3 = MP3::load(args.dir)?;
     let mtx = mp3.mtx.clone();
 
     let mut gui = GUI::new(mtx).map_err(gui::cvt_lvgl_err)?;
     gui.draw().map_err(gui::cvt_lvgl_err)?;
 
-    std::thread::spawn(move || gui.main_loop().unwrap());
+    std::thread::spawn(move || gui.main_loop());
     mp3.main_loop()
 }

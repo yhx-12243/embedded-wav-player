@@ -1,5 +1,5 @@
 use core::{error::Error, fmt, hint::unlikely};
-use std::{io, sync::mpsc::RecvError};
+use std::{io::{self, SeekFrom}, sync::mpsc::RecvError};
 
 use alsa::pcm::Format;
 use hound::{SampleFormat, WavSpec};
@@ -117,7 +117,7 @@ impl From<PlayError> for io::Error {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum PlayerEvent {
     Terminate,
     Move { offset: isize },
@@ -128,26 +128,19 @@ pub enum PlayerEvent {
 
 pub use hack::Handle;
 
-#[derive(Debug)]
-pub struct MP3Event {
-    pub handle: Handle,
-    pub payload: MP3EventPayload,
-}
-
-#[derive(Debug)]
-pub enum MP3EventPayload {
-    PlayerEnd,
+#[derive(Clone, Copy, Debug)]
+pub enum MP3Event {
+    PlayerEnd { player: Handle },
     Close,
     Dispatch { sub: PlayerEvent },
+    SwitchSong { seek: SeekFrom },
+    SetVolume { volume: u8 },
 }
 
 impl From<PlayerEvent> for MP3Event {
     #[inline]
     fn from(event: PlayerEvent) -> Self {
-        Self {
-            handle: Handle::NONE,
-            payload: MP3EventPayload::Dispatch { sub: event },
-        }
+        Self::Dispatch { sub: event }
     }
 }
 

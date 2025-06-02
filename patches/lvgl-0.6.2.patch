@@ -1,0 +1,19 @@
+diff --git a/src/display.rs b/src/display.rs
+index 8e8f510..a27b1dc 100644
+--- a/src/display.rs
++++ b/src/display.rs
+@@ -20,12 +20,12 @@ type Result<T> = result::Result<T, DisplayError>;
+ 
+ /// An LVGL-registered display. Equivalent to an `lv_disp_t`.
+ pub struct Display {
+-    pub(crate) disp: NonNull<lvgl_sys::lv_disp_t>,
++    pub disp: NonNull<lvgl_sys::lv_disp_t>,
+     drop: Option<unsafe extern "C" fn()>,
+ }
+ 
+ impl<'a> Display {
+-    pub(crate) fn from_raw(
++    pub fn from_raw(
+         disp: NonNull<lvgl_sys::lv_disp_t>,
+         drop: Option<unsafe extern "C" fn()>,
+     ) -> Self {
