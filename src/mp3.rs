@@ -1,7 +1,7 @@
 use std::{
     fs, io,
     path::PathBuf,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, channel},
 };
 
 use alsa::{Mixer, mixer::SelemId};
@@ -37,8 +37,16 @@ pub struct MP3 {
     current_idx: usize,
     multiplier: u8, // 倍速 * 0.5
     tx: Option<Sender<PlayerEvent>>,
-    mtx: Sender<MP3Event>,
+    pub mtx: Sender<MP3Event>,
     mrx: Receiver<MP3Event>,
+}
+
+impl Drop for MP3 {
+    fn drop(&mut self) {
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(PlayerEvent::Terminate);
+        }
+    }
 }
 
 impl MP3 {
@@ -53,7 +61,7 @@ impl MP3 {
             let path = entry?.path();
             match Song::load(path) {
                 Ok(song) => {
-                    tracing::info!("\x1b[32m{}\x1b[0m WAV sanity check passed.", song.path.display());
+                    tracing::info!("\x1b[32m{}\x1b[0m WAV sanity check passed (spec={:?}, num_samples={}).", song.path.display(), song.spec, song.num_samples);
                     songs.push(song);
                 }
                 Err(path) => tracing::info!("\x1b[33m{}\x1b[0m is not a WAV file, skipped.", path.display()),
@@ -62,7 +70,7 @@ impl MP3 {
         if songs.is_empty() { return Err(NO_SONGS_FOUND); }
         tracing::info!("successfully load {} songs.", songs.len());
 
-        let (mtx, mrx) = mpsc::channel();
+        let (mtx, mrx) = channel();
         Ok(Self {
             songs,
             current_idx: usize::MAX,
@@ -113,14 +121,14 @@ impl MP3 {
             let _ = tx.send(PlayerEvent::Terminate);
         }
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = channel();
         self.current_idx = idx;
         self.tx = Some(tx);
 
-        tracing::info!("switch to song #{idx}: \x1b[36m{}\x1b[0m", song.path.display());
+        tracing::info!("switch to song #{idx}: \x1b[36m{}\x1b[0m", song.path.file_name().unwrap_or(song.path.as_os_str()).display());
         {
             let tx = self.mtx.clone();
-            std::thread::spawn(move || player.play(tx, rx));
+            std::thread::spawn(move || player.play(tx, rx).unwrap());
         }
 
         Ok(())
@@ -134,7 +142,7 @@ impl MP3 {
         }
     }
 
-    pub fn start_loop(&mut self) -> io::Result<!> {
+    pub fn main_loop(mut self) -> io::Result<()> {
         self.switch_song(0)?;
 
         loop {
@@ -142,11 +150,18 @@ impl MP3 {
                 Ok(MP3Event { handle, payload: MP3EventPayload::PlayerEnd }) => {
                     let cur_handle = self.get_current_handle();
                     if cur_handle == handle {
-                        tracing::info!("song #{} play finished.", self.current_idx);
+                        tracing::info!("song #{} play finished, switch to next song.", self.current_idx);
                         self.switch_song((self.current_idx + 1) % self.songs.len())?;
+                        if let Some(tx) = &self.tx {
+                            let _ = tx.send(PlayerEvent::Resume);
+                        }
                     } else {
-                        tracing::info!("Stale end event: cur_handle = {}, event_handle = {}", cur_handle, handle);
+                        tracing::info!("Stale end event: cur_handle = {cur_handle}, event_handle = {handle}");
                     }
+                }
+                Ok(MP3Event { payload: MP3EventPayload::Close, .. }) => {
+                    tracing::info!("Received close event, exiting main loop.");
+                    return Ok(());
                 }
                 Err(e) => return Err(io::Error::other(e)),
             }

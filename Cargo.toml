@@ -4,14 +4,16 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-alsa = "0.9.1"
+alsa = { git = "https://github.com/diwic/alsa-rs" }
 alsa-sys = "0.3.1"
-clap = { version = "4.5.38", features = ["derive", "unicode", "wrap_help", "env", "string", "unstable-v5"] }
+clap = { version = "4.5.39", features = ["derive", "unicode", "wrap_help", "env", "string", "unstable-v5"] }
 clap_derive = { version = "4.5.32", features = ["unstable-v5"] }
 env_logger = { git = "https://github.com/rust-cli/env_logger", default-features = false, features = ["auto-color", "humantime"] }
 hound = "3.5.1"
 log = { version = "0.4.27", features = ["release_max_level_info"] }
-replace_with = { version = "0.1.7", features = ["nightly", "panic_abort"] }
+lvgl = { version = "0.6.2", features = ["rust_timer"] }
+lvgl-sys = "0.6.2"
+replace_with = { version = "0.1.8", features = ["nightly", "panic_abort"] }
 tracing = { version = "0.1.41", features = ["log", "release_max_level_info"] }
 
 # 编译调试版本: cargo b --target armv7-unknown-linux-gnueabihf

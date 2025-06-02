@@ -124,7 +124,7 @@ where
 
         loop {
             let e = rx.recv()?;
-            tracing::info!("Receive event \x1b[33m{e:?}\x1b[0m [Stopping]");
+            tracing::info!("⟨\x1b[33m{handle}\x1b[0m, \x1b[35mStopping\x1b[0m⟩ Receive event \x1b[33m{e:?}\x1b[0m");
             match e {
                 PlayerEvent::Terminate => return Ok(()),
                 PlayerEvent::Move { offset } => {
@@ -145,7 +145,7 @@ where
             loop {
                 match rx.try_recv() {
                     Ok(e) => {
-                        tracing::info!("Receive event \x1b[33m{e:?}\x1b[0m [Playing]");
+                        tracing::info!("⟨\x1b[33m{handle}\x1b[0m, \x1b[35mPlaying\x1b[0m⟩ Receive event \x1b[33m{e:?}\x1b[0m");
                         match e {
                             PlayerEvent::Terminate => return Ok(()),
                             PlayerEvent::Move { offset } => {

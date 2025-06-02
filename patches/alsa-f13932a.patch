@@ -1,0 +1,13 @@
+diff --git a/src/pcm.rs b/src/pcm.rs
+index e0f7643..4c15061 100644
+--- a/src/pcm.rs
++++ b/src/pcm.rs
+@@ -371,7 +371,7 @@ impl<'a, S: Copy> Drop for IO<'a, S> {
+ 
+ impl<'a, S: Copy> IO<'a, S> {
+ 
+-    fn new(a: &'a PCM) -> IO<'a, S> {
++    pub fn new(a: &'a PCM) -> IO<'a, S> {
+         a.check_has_io();
+         a.1.set(true);
+         IO(a, PhantomData)

@@ -1,5 +1,12 @@
-#![feature(io_const_error, io_const_error_internals, likely_unlikely, never_type)]
+#![feature(
+    debug_closure_helpers,
+    io_const_error,
+    io_const_error_internals,
+    likely_unlikely,
+    never_type,
+)]
 
+mod gui;
 mod log;
 mod mp3;
 mod util;
@@ -20,8 +27,9 @@ struct Args {
     volume: u8,
 }
 
-fn main() -> std::io::Result<!> {
+fn main() -> std::io::Result<()> {
     use clap::Parser;
+    use gui::GUI;
     use mp3::MP3;
 
     env_logger::builder().format(log::format).init();
@@ -29,6 +37,11 @@ fn main() -> std::io::Result<!> {
 
     MP3::set_volume(args.volume).map_err(std::io::Error::other)?;
     let mut mp3 = MP3::load(args.dir)?;
+    let mtx = mp3.mtx.clone();
 
-    mp3.start_loop()
+    let mut gui = GUI::new(mtx).map_err(gui::cvt_lvgl_err)?;
+    gui.draw().map_err(gui::cvt_lvgl_err)?;
+
+    std::thread::spawn(move || gui.main_loop().unwrap());
+    mp3.main_loop()
 }

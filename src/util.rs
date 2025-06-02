@@ -1,8 +1,5 @@
 use core::{error::Error, fmt, hint::unlikely};
-use std::{
-    io::{self, BufReader},
-    sync::mpsc::RecvError,
-};
+use std::{io, sync::mpsc::RecvError};
 
 use alsa::pcm::Format;
 use hound::{SampleFormat, WavSpec};
@@ -18,7 +15,7 @@ pub fn cvt_err(err: hound::Error) -> io::Error {
 }
 
 #[cold]
-pub fn buffer_resize_if_need<R>(sample_size: usize, reader: &mut BufReader<R>)
+pub fn buffer_resize_if_need<R>(sample_size: usize, reader: &mut io::BufReader<R>)
 where
     R: io::Read,
 {
@@ -28,7 +25,7 @@ where
     if unlikely(crem != 0) {
         let new_cap = cap + (sample_size - crem);
         println!("buffer capacity ({cap}) is not multiple of sample size ({sample_size}), re-buffering with size {new_cap}.");
-        replace_with_or_abort(reader, |owned| BufReader::with_capacity(new_cap, owned.into_inner()));
+        replace_with_or_abort(reader, |owned| io::BufReader::with_capacity(new_cap, owned.into_inner()));
     }
 }
 
@@ -74,6 +71,7 @@ pub fn cvt_format(spec: WavSpec) -> Result<Format, PlayError> {
     }
 }
 
+#[derive(Debug)]
 pub enum PlayError {
     Alsa(alsa::Error),
     Format(UnsupportedFormatError),
@@ -139,6 +137,7 @@ pub struct MP3Event {
 #[derive(Debug)]
 pub enum MP3EventPayload {
     PlayerEnd,
+    Close,
 }
 
 #[inline(always)]
