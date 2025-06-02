@@ -16,9 +16,6 @@ lvgl-sys = "0.6.2"
 replace_with = { version = "0.1.8", features = ["nightly", "panic_abort"] }
 tracing = { version = "0.1.41", features = ["log", "release_max_level_info"] }
 
-# 编译调试版本: cargo b --target armv7-unknown-linux-gnueabihf
-# 编译生产版本: cargo b -r -Z build-std=core,alloc,std,panic_abort -Z build-std-features=optimize_for_size,panic_immediate_abort --target armv7-unknown-linux-gnueabihf
-
 [lints.rust]
 dead_code = { level = "allow", priority = 1 }
 internal_features = { level = "allow", priority = 1 }

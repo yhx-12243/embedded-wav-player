@@ -138,6 +138,17 @@ pub struct MP3Event {
 pub enum MP3EventPayload {
     PlayerEnd,
     Close,
+    Dispatch { sub: PlayerEvent },
+}
+
+impl From<PlayerEvent> for MP3Event {
+    #[inline]
+    fn from(event: PlayerEvent) -> Self {
+        Self {
+            handle: Handle::NONE,
+            payload: MP3EventPayload::Dispatch { sub: event },
+        }
+    }
 }
 
 #[inline(always)]

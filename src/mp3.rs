@@ -163,6 +163,12 @@ impl MP3 {
                     tracing::info!("Received close event, exiting main loop.");
                     return Ok(());
                 }
+                Ok(MP3Event { payload: MP3EventPayload::Dispatch { sub }, .. }) => {
+                    tracing::info!("Received user event {sub}, dispatch to player.");
+                    if let Some(tx) = &self.tx {
+                        let _ = tx.send(sub);
+                    }
+                }
                 Err(e) => return Err(io::Error::other(e)),
             }
         }
