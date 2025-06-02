@@ -8,7 +8,7 @@ use alsa::{Mixer, mixer::SelemId};
 use hound::{WavReader, WavSpec};
 
 use crate::{
-    util::{MP3Event, PlayerEvent, cvt_err},
+    util::{Handle, MP3Event, MP3EventPayload, PlayerEvent, cvt_err, get_channel_handle},
     wav::Player,
 };
 
@@ -126,14 +126,27 @@ impl MP3 {
         Ok(())
     }
 
+    const fn get_current_handle(&self) -> Handle {
+        if let Some(tx) = &self.tx {
+            get_channel_handle(core::ptr::from_ref(tx))
+        } else {
+            Handle::NONE
+        }
+    }
+
     pub fn start_loop(&mut self) -> io::Result<!> {
         self.switch_song(0)?;
 
         loop {
             match self.mrx.recv() {
-                Ok(MP3Event::PlayerEnd) => {
-                    tracing::info!("song #{} play finished.", self.current_idx);
-                    self.switch_song((self.current_idx + 1) % self.songs.len())?;
+                Ok(MP3Event { handle, payload: MP3EventPayload::PlayerEnd }) => {
+                    let cur_handle = self.get_current_handle();
+                    if cur_handle == handle {
+                        tracing::info!("song #{} play finished.", self.current_idx);
+                        self.switch_song((self.current_idx + 1) % self.songs.len())?;
+                    } else {
+                        tracing::info!("Stale end event: cur_handle = {}, event_handle = {}", cur_handle, handle);
+                    }
                 }
                 Err(e) => return Err(io::Error::other(e)),
             }

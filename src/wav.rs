@@ -10,7 +10,10 @@ use alsa::{
 };
 use hound::WavReader;
 
-use crate::util::{MP3Event, PlayError, PlayerEvent, buffer_resize_if_need, cvt_format};
+use crate::util::{
+    Handle, MP3Event, MP3EventPayload, PlayError, PlayerEvent, buffer_resize_if_need, cvt_format,
+    get_channel_handle,
+};
 
 pub fn dump_header<R>(reader: &WavReader<R>)
 where
@@ -75,13 +78,13 @@ where
     }
 }
 
-#[repr(transparent)]
-struct EndReporter(Sender<MP3Event>);
+struct EndReporter(Sender<MP3Event>, Handle);
 
 impl Drop for EndReporter {
     fn drop(&mut self) {
-        if let Err(e) = self.0.send(MP3Event::PlayerEnd) {
-            tracing::error!("Failed to send end event: {e}");
+        match self.0.send(MP3Event { handle: self.1, payload: MP3EventPayload::PlayerEnd }) {
+            Ok(()) => tracing::info!("Player (with handle \x1b[33m{}\x1b[0m) ends.", self.1),
+            Err(e) => tracing::error!("Failed to send end event: {e}"),
         }
     }
 }
@@ -95,7 +98,8 @@ where
         const WRITE_ZERO: io::Error = io::const_error!(io::ErrorKind::WriteZero, "fail to write audio");
         const INVALID_RET: io::Error = io::const_error!(io::ErrorKind::InvalidInput, "invalid return values");
 
-        let end_reporter = EndReporter(tx);
+        let handle = get_channel_handle(&raw const rx);
+        let _end_reporter = EndReporter(tx, handle);
 
         let pcm = self.configure_pcm()?;
 
@@ -106,7 +110,6 @@ where
         let sample_rate = self.reader.spec().sample_rate;
         let num_samples = self.reader.len();
         let size_per_second = (sample_size as u64 * u64::from(sample_rate)).cast_signed();
-        let mut v = vec![0; sample_size];
 
         let reader = unsafe { self.reader.as_mut_inner() };
         #[allow(clippy::seek_from_current)]
@@ -117,15 +120,13 @@ where
         buffer_resize_if_need(sample_size, reader);
 
         let mut io = IO::<()>::new(&pcm);
+        let mut v = vec![0; sample_size];
 
         loop {
             let e = rx.recv()?;
             tracing::info!("Receive event \x1b[33m{e:?}\x1b[0m [Stopping]");
             match e {
-                PlayerEvent::Terminate => {
-                    core::mem::forget(end_reporter);
-                    return Ok(());
-                }
+                PlayerEvent::Terminate => return Ok(()),
                 PlayerEvent::Move { offset } => {
                     let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second).clamp(begin, end);
                     if pos != new_pos {
@@ -146,10 +147,7 @@ where
                     Ok(e) => {
                         tracing::info!("Receive event \x1b[33m{e:?}\x1b[0m [Playing]");
                         match e {
-                            PlayerEvent::Terminate => {
-                                core::mem::forget(end_reporter);
-                                return Ok(());
-                            }
+                            PlayerEvent::Terminate => return Ok(()),
                             PlayerEvent::Move { offset } => {
                                 let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second).clamp(begin, end);
                                 if pos != new_pos {

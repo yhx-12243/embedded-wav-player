@@ -128,7 +128,53 @@ pub enum PlayerEvent {
     Resume,
 }
 
+pub use hack::Handle;
+
 #[derive(Debug)]
-pub enum MP3Event {
+pub struct MP3Event {
+    pub handle: Handle,
+    pub payload: MP3EventPayload,
+}
+
+#[derive(Debug)]
+pub enum MP3EventPayload {
     PlayerEnd,
+}
+
+#[inline(always)]
+pub const fn get_channel_handle<T>(chan: *const T) -> Handle {
+    unsafe { hack::get_channel_handle_inner(chan.cast()) }
+}
+
+mod hack {
+    use core::fmt;
+
+    /// corresponding [`std::sync::mpmc::counter::Counter<Channel<T>>`]
+    #[repr(transparent)]
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub struct Handle(*const ());
+
+    impl fmt::Debug for Handle {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fmt::Pointer::fmt(&self.0, f)
+        }
+    }
+
+    impl fmt::Display for Handle {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fmt::Pointer::fmt(&self.0, f)
+        }
+    }
+
+    unsafe impl Send for Handle {}
+
+    impl Handle {
+        pub const NONE: Self = Self(core::ptr::null());
+    }
+
+    pub const unsafe fn get_channel_handle_inner(thing: *const Handle) -> Handle {
+        unsafe { *thing.add(1) }
+    }
 }
