@@ -67,7 +67,7 @@ extern "C" fn set_volume(event: *mut lvgl_sys::lv_event_t) {
         let vol = (*event).target;
         let volume = lvgl_sys::lv_bar_get_value(vol);
         let tx = (*event).user_data as *const Sender<MP3Event>;
-        let _ = (*tx).send(MP3Event::SetVolume { volume: volume.into() });
+        let _ = (*tx).send(MP3Event::SetVolume { volume });
     }
 }
 
@@ -126,7 +126,7 @@ impl GUI {
         }
     }
 
-    pub fn draw(&mut self, songs: &[Song]) -> LvResult<()> {
+    pub fn draw(&mut self, songs: &[Song], initial_volume: i32) -> LvResult<()> {
         let mut list = List::new()?;
         list.set_pos(340, 25)?;
         list.set_size(200, 270)?;
@@ -189,6 +189,7 @@ impl GUI {
         let leaked_tx = Box::into_raw(Box::new(self.tx.clone()));
         unsafe {
             lvgl_sys::lv_bar_set_range(vol.raw()?.as_ptr(), 0, 512);
+            lvgl_sys::lv_bar_set_value(vol.raw()?.as_ptr(), initial_volume, 0);
             // lvgl_sys::lv_obj_add_flag(vol.raw()?.as_ptr(), lvgl_sys::LV_OBJ_FLAG_CLICKABLE);
             lvgl_sys::lv_obj_add_event_cb(vol.raw()?.as_ptr(), Some(set_volume), lvgl_sys::lv_event_code_t_LV_EVENT_VALUE_CHANGED, leaked_tx.cast());
         }
@@ -196,7 +197,7 @@ impl GUI {
         let mut progress = Bar::new()?;
         progress.set_pos(25, 195)?;
         progress.set_size(290, 15)?;
-        unsafe { lvgl_sys::lv_bar_set_range(progress.raw()?.as_ptr(), 0, 0x100000); }
+        unsafe { lvgl_sys::lv_bar_set_range(progress.raw()?.as_ptr(), 0, 0x10_0000); }
         self.progress = Some(progress);
 
         let mut pl = Label::new()?;

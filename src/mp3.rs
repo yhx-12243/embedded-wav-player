@@ -1,6 +1,9 @@
 use core::hint::unlikely;
 use std::{
-    fs, io::{self, SeekFrom}, path::{Path, PathBuf}, sync::mpsc::{channel, Receiver, Sender}
+    fs,
+    io::{self, Seek, SeekFrom},
+    path::{Path, PathBuf},
+    sync::mpsc::{Receiver, Sender, channel},
 };
 
 use alsa::{Mixer, mixer::SelemId};
@@ -28,11 +31,20 @@ impl Song {
         let Ok(tmp_reader) = WavReader::open(&path) else { return Err(path) };
         let spec = tmp_reader.spec();
         let num_samples = tmp_reader.len();
-        Ok(Self {
-            path,
-            spec,
-            num_samples,
-        })
+        let file_size = u64::from(num_samples) * u64::from(spec.bytes_per_sample);
+        let mut inner = tmp_reader.into_inner();
+        if let Ok(cur) = inner.stream_position()
+            && let Ok(metadata) = inner.into_inner().metadata()
+            && metadata.len() == cur + file_size
+        {
+            Ok(Self {
+                path,
+                spec,
+                num_samples,
+            })
+        } else {
+            Err(path)
+        }
     }
 }
 
@@ -107,7 +119,7 @@ impl MP3 {
             return Err(E);
         }
 
-        tracing::info!("Set volume to {}%", volume as f64 * 0.1953125);
+        tracing::info!("Set volume to {}%", f64::from(volume) * 0.195_312_5);
         Ok(())
     }
 
@@ -129,7 +141,7 @@ impl MP3 {
         }
 
         let (tx, rx) = channel();
-        let _ = gtx.send(GUIEvent::SwitchSong { index: idx, handle: get_channel_handle(&tx) });
+        let _ = gtx.send(GUIEvent::SwitchSong { index: idx, handle: get_channel_handle(&raw const tx) });
         self.current_idx = idx;
         self.tx = Some(tx);
 

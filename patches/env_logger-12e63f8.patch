@@ -1,8 +1,8 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index a3e5c8a..86a1b77 100644
+index e9787b1..63df67a 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -120,7 +120,7 @@ pre-release-replacements = [
+@@ -128,7 +128,7 @@ pre-release-replacements = [
  default = ["auto-color", "humantime", "regex"]
  color = ["dep:anstream", "dep:anstyle"]
  auto-color = ["color", "anstream/auto"]
@@ -11,7 +11,7 @@ index a3e5c8a..86a1b77 100644
  regex = ["env_filter/regex"]
  kv = ["log/kv"]
  # Deprecated
-@@ -129,7 +129,7 @@ unstable-kv = ["kv"]
+@@ -137,7 +137,7 @@ unstable-kv = ["kv"]
  [dependencies]
  log = { version = "0.4.21", features = ["std"] }
  env_filter = { version = "0.1.0", path = "crates/env_filter", default-features = false }

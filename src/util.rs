@@ -1,4 +1,4 @@
-use core::{error::Error, fmt, hint::unlikely};
+use core::{error::Error, fmt};
 use std::{io, sync::mpsc::RecvError};
 
 use alsa::pcm::Format;
@@ -14,18 +14,13 @@ pub fn cvt_err(err: hound::Error) -> io::Error {
     }
 }
 
-#[cold]
-pub fn buffer_resize_if_need<R>(sample_size: usize, reader: &mut io::BufReader<R>)
+pub fn buffer_resize<R>(reader: &mut io::BufReader<R>, new_size: usize)
 where
     R: io::Read,
 {
-    let cap = reader.capacity();
-    let crem = cap % sample_size;
-
-    if unlikely(crem != 0) {
-        let new_cap = cap + (sample_size - crem);
-        println!("buffer capacity ({cap}) is not multiple of sample size ({sample_size}), re-buffering with size {new_cap}.");
-        replace_with_or_abort(reader, |owned| io::BufReader::with_capacity(new_cap, owned.into_inner()));
+    if reader.capacity() != new_size {
+        tracing::info!("Resizing buffer from {} to {}", reader.capacity(), new_size);
+        replace_with_or_abort(reader, |owned| io::BufReader::with_capacity(new_size, owned.into_inner()));
     }
 }
 
@@ -150,13 +145,20 @@ pub enum GUIEvent {
     ProgressAccess { access: Option<ProgressAccess>, handle: Handle },
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct Progress {
+    pub begin: usize,
+    pub pos: usize,
+    pub end: usize,
+    pub delay: isize,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ProgressAccess {
-    pub begin: *const usize,
-    pub pos: *const usize,
-    pub end: *const usize,
-    pub delay: *const isize,
-    pub size_per_second: *const usize,
+    pub multiplier: *const u8,
+    pub progress: *const Progress,
+    pub duration: usize,
+    pub size_per_second: usize,
 }
 
 unsafe impl Send for ProgressAccess {}
@@ -179,22 +181,24 @@ impl ProgressAccess {
 
     #[inline]
     pub fn c(&self) -> usize {
-        unsafe { (*self.pos - *self.begin).wrapping_sub_signed(*self.delay) }
+        let progress = unsafe { *self.progress };
+        let multiplier = unsafe { *self.multiplier };
+        (progress.pos - progress.begin).wrapping_sub_signed(progress.delay * isize::from(multiplier) / 2)
     }
 
     #[inline]
     pub fn p(&self) -> usize {
-        (((self.c() as u64) << 20) / unsafe { *self.end - *self.begin } as u64) as usize
+        (((self.c() as u64) << 20) / self.duration as u64) as usize
     }
 
     #[inline]
     pub fn l(&self) -> String {
-        Self::i(self.c(), unsafe { *self.size_per_second })
+        Self::i(self.c(), self.size_per_second)
     }
 
     #[inline]
     pub fn n(&self) -> String {
-        Self::i(unsafe { *self.end - *self.begin }, unsafe { *self.size_per_second })
+        Self::i(self.duration, self.size_per_second)
     }
 }
 

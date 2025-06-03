@@ -6,13 +6,17 @@
     likely_unlikely,
     mixed_integer_ops_unsigned_sub,
     never_type,
+    new_zeroed_alloc,
+    stmt_expr_attributes,
     sync_unsafe_cell,
     unboxed_closures,
 )]
 
+mod fmt_impl;
 mod gui;
 mod log;
 mod mp3;
+mod shift;
 mod util;
 mod wav;
 
@@ -47,7 +51,7 @@ fn main() -> std::io::Result<()> {
 
     let mut gui = GUI::new(mtx).map_err(gui::cvt_lvgl_err)?;
     tracing::info!("GUI initialized.");
-    gui.draw(mp3.get_songs()).map_err(gui::cvt_lvgl_err)?;
+    gui.draw(mp3.get_songs(), i32::from(args.volume) * 128).map_err(gui::cvt_lvgl_err)?;
     tracing::info!("GUI drawing finished.");
 
     let (gtx, grx) = std::sync::mpsc::channel();
