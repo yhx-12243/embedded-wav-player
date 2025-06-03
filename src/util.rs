@@ -152,16 +152,17 @@ pub enum GUIEvent {
 
 #[derive(Clone, Copy, Debug)]
 pub struct ProgressAccess {
-    pub begin: *const u64,
-    pub pos: *const u64,
-    pub end: *const u64,
-    pub size_per_second: *const u64,
+    pub begin: *const usize,
+    pub pos: *const usize,
+    pub end: *const usize,
+    pub delay: *const isize,
+    pub size_per_second: *const usize,
 }
 
 unsafe impl Send for ProgressAccess {}
 
 impl ProgressAccess {
-    fn i(mut num: u64, den: u64) -> String {
+    fn i(mut num: usize, den: usize) -> String {
         use fmt::Write;
 
         let mut ret = String::with_capacity(10); // 12:34.567\0
@@ -177,13 +178,18 @@ impl ProgressAccess {
     }
 
     #[inline]
-    pub fn p(&self) -> u64 {
-        (unsafe { *self.pos - *self.begin } << 20) / unsafe { *self.end - *self.begin }
+    pub fn c(&self) -> usize {
+        unsafe { (*self.pos - *self.begin).wrapping_sub_signed(*self.delay) }
+    }
+
+    #[inline]
+    pub fn p(&self) -> usize {
+        (((self.c() as u64) << 20) / unsafe { *self.end - *self.begin } as u64) as usize
     }
 
     #[inline]
     pub fn l(&self) -> String {
-        Self::i(unsafe { *self.pos - *self.begin }, unsafe { *self.size_per_second })
+        Self::i(self.c(), unsafe { *self.size_per_second })
     }
 
     #[inline]

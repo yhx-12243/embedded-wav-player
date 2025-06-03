@@ -1,12 +1,10 @@
 use core::hint::unlikely;
 use std::{
-    io::{self, BufRead, BufReader, Seek, SeekFrom, Write},
-    sync::mpsc::{Receiver, RecvError, Sender, TryRecvError},
+    io::{self, BufRead, BufReader, Seek, SeekFrom, Write}, sync::mpsc::{Receiver, RecvError, Sender, TryRecvError}
 };
 
 use alsa::{
-    Direction, PCM, ValueOr,
-    pcm::{Access, Format, HwParams, IO},
+    pcm::{Access, Format, HwParams, State, IO}, Direction, ValueOr, PCM
 };
 use hound::WavReader;
 
@@ -114,14 +112,15 @@ where
             .map_or(const { Err(PlayError::Io(SAMPLE_SIZE_TOO_LARGE)) }, Ok)?
             .into();
         let num_samples = self.reader.len();
-        let size_per_second = sample_size as u64 * u64::from(spec.sample_rate);
+        let size_per_second = sample_size * spec.sample_rate as usize;
 
         let reader = unsafe { self.reader.as_mut_inner() };
 
         #[allow(clippy::seek_from_current)]
-        let begin = reader.seek(SeekFrom::Current(0))?; // 重置 reader 指针并清空缓存
-        let end = begin + spec.bytes_per_sample as u64 * u64::from(num_samples);
+        let begin = reader.seek(SeekFrom::Current(0))? as usize; // 重置 reader 指针并清空缓存
+        let end = begin + spec.bytes_per_sample as usize * num_samples as usize;
         let mut pos = begin;
+        let mut delay = 0;
 
         buffer_resize_if_need(sample_size, reader);
 
@@ -133,6 +132,7 @@ where
                 begin: &raw const begin,
                 pos: &raw const pos,
                 end: &raw const end,
+                delay: &raw const delay,
                 size_per_second: &raw const size_per_second,
             }),
             handle,
@@ -144,10 +144,10 @@ where
             match e {
                 PlayerEvent::Terminate => return Ok(()),
                 PlayerEvent::Move { offset } => {
-                    let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second as i64).clamp(begin, end);
+                    let new_pos = pos.saturating_add_signed(offset * size_per_second.cast_signed()).clamp(begin, end);
                     if pos != new_pos {
                         pos = new_pos;
-                        reader.seek(SeekFrom::Start(pos))?;
+                        reader.seek(SeekFrom::Start(pos as u64))?;
                     }
                     continue;
                 }
@@ -156,27 +156,40 @@ where
                     continue;
                 }
                 PlayerEvent::Pause => continue,
-                PlayerEvent::Resume => if let Err(e) = pcm.pause(false) {
-                    tracing::info!("resume: {e}");
-                }
+                PlayerEvent::Resume => (),
             }
             loop {
+                if let Ok(d) = pcm.delay() {
+                    delay = d as isize * sample_size.cast_signed();
+                }
                 match rx.try_recv() {
                     Ok(e) => {
-                        tracing::info!("⟨\x1b[33m{handle}\x1b[0m, \x1b[35mPlaying\x1b[0m at \x1b[36m{}/{}\x1b[0m⟩ Receive event \x1b[33m{e:?}\x1b[0m", pos - begin, end - begin);
+                        tracing::info!("⟨\x1b[33m{handle}\x1b[0m, \x1b[35mPlaying\x1b[0m at \x1b[36m{} ({:+})/{}\x1b[0m⟩ Receive event \x1b[33m{e:?}\x1b[0m", pos - begin, -delay, end - begin);
                         match e {
                             PlayerEvent::Terminate => return Ok(()),
                             PlayerEvent::Move { offset } => {
-                                let new_pos = pos.saturating_add_signed(offset as i64 * size_per_second as i64).clamp(begin, end);
+                                if let Err(e) = pcm.drop() { tracing::warn!("drop: {e}"); }
+                                if let Err(e) = pcm.prepare() { tracing::warn!("prepare: {e}"); }
+                                let new_pos = pos
+                                    .saturating_add_signed(offset * size_per_second.cast_signed())
+                                    .saturating_sub_signed(delay)
+                                    .clamp(begin, end);
                                 if pos != new_pos {
                                     pos = new_pos;
-                                    reader.seek(SeekFrom::Start(pos))?;
+                                    delay = 0;
+                                    reader.seek(SeekFrom::Start(pos as u64))?;
                                 }
                             }
                             PlayerEvent::SetMultiplier { multiplier } => self.multiplier = multiplier,
                             PlayerEvent::Pause => {
-                                if let Err(e) = pcm.pause(true) {
-                                    tracing::info!("resume: {e}");
+                                // if let Err(e) = pcm.pause(true) { tracing::warn!("pause: {e}"); }
+                                if let Err(e) = pcm.drop() { tracing::warn!("drop: {e}"); }
+                                if let Err(e) = pcm.prepare() { tracing::warn!("prepare: {e}"); }
+                                let new_pos = pos.saturating_sub_signed(delay).clamp(begin, end);
+                                if pos != new_pos {
+                                    pos = new_pos;
+                                    delay = 0;
+                                    reader.seek(SeekFrom::Start(pos as u64))?;
                                 }
                                 break;
                             }
@@ -188,14 +201,19 @@ where
                 }
                 let buf = reader.fill_buf()?;
                 if buf.is_empty() {
-                    return pcm.drain().map_err(Into::into);
+                    if pcm.state() == State::Running {
+                        core::hint::spin_loop();
+                        continue;
+                    } else {
+                        return Ok(())
+                    }
                 }
                 let l = buf.len();
 
                 if unlikely(l < sample_size) {
                     v[..l].copy_from_slice(buf);
                     reader.consume(l);
-                    pos += l as u64;
+                    pos += l;
                     reader.get_mut().read_exact(&mut v[l..])?;
                     match io.write(&v)? {
                         0 => continue, // return Err(PlayError::Io(WRITE_ZERO)),
@@ -215,7 +233,7 @@ where
                 }
 
                 reader.consume(real);
-                pos += real as u64;
+                pos += real;
             }
         }
     }

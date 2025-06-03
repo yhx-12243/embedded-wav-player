@@ -74,7 +74,7 @@ impl MP3 {
                     tracing::info!("\x1b[32m{}\x1b[0m WAV sanity check passed (spec={:?}, num_samples={}).", song.path.display(), song.spec, song.num_samples);
                     songs.push(song);
                 }
-                Err(path) => tracing::info!("\x1b[33m{}\x1b[0m is not a WAV file, skipped.", path.display()),
+                Err(path) => tracing::warn!("\x1b[33m{}\x1b[0m is not a WAV file, skipped.", path.display()),
             }
         }
         if songs.is_empty() { return Err(NO_SONGS_FOUND); }

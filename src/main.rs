@@ -4,6 +4,7 @@
     io_const_error,
     io_const_error_internals,
     likely_unlikely,
+    mixed_integer_ops_unsigned_sub,
     never_type,
     sync_unsafe_cell,
     unboxed_closures,
