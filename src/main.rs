@@ -1,5 +1,15 @@
-#![feature(io_const_error, io_const_error_internals, likely_unlikely, never_type)]
+#![feature(
+    debug_closure_helpers,
+    fn_traits,
+    io_const_error,
+    io_const_error_internals,
+    likely_unlikely,
+    never_type,
+    sync_unsafe_cell,
+    unboxed_closures,
+)]
 
+mod gui;
 mod log;
 mod mp3;
 mod util;
@@ -20,15 +30,26 @@ struct Args {
     volume: u8,
 }
 
-fn main() -> std::io::Result<!> {
+fn main() -> std::io::Result<()> {
     use clap::Parser;
+    use gui::GUI;
     use mp3::MP3;
 
     env_logger::builder().format(log::format).init();
     let args = Args::parse();
 
-    MP3::set_volume(args.volume).map_err(std::io::Error::other)?;
     let mut mp3 = MP3::load(args.dir)?;
+    mp3.set_volume(i32::from(args.volume) * 128).map_err(std::io::Error::other)?;
+    let mtx = mp3.mtx.clone();
 
-    mp3.start_loop()
+    lvgl::init();
+
+    let mut gui = GUI::new(mtx).map_err(gui::cvt_lvgl_err)?;
+    tracing::info!("GUI initialized.");
+    gui.draw(mp3.get_songs()).map_err(gui::cvt_lvgl_err)?;
+    tracing::info!("GUI drawing finished.");
+
+    let (gtx, grx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || gui.main_loop(grx));
+    mp3.main_loop(gtx)
 }
