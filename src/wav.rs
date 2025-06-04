@@ -242,13 +242,13 @@ where
                 // 还有没写完的，先写
                 if w_b != w_e {
                     let expected = (w_e - w_b) / usize::from(spec.channels);
-                    let real = loop {
-                        match io.writei(&w[w_b..w_e]) {
-                            Ok(s) => break s,
-                            Err(e) if io::Error::from_raw_os_error(e.errno()).kind() == io::ErrorKind::BrokenPipe =>
-                                if let Err(e) = pcm.prepare() { tracing::warn!("play-prepare: {e}"); }
-                            Err(e) => return Err(e.into()),
+                    let real = match io.writei(&w[w_b..w_e]) {
+                        Ok(s) => s,
+                        Err(e) if io::Error::from_raw_os_error(e.errno()).kind() == io::ErrorKind::BrokenPipe => {
+                            if let Err(e) = pcm.prepare() { tracing::warn!("play-prepare: {e}"); }
+                            continue;
                         }
+                        Err(e) => return Err(e.into()),
                     };
                     if real == 0 {
                         continue;
