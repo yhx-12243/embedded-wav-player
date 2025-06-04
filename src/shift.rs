@@ -4,6 +4,24 @@ pub const BLOCK_SIZE: usize = 512;
 pub const ADDITION: usize = 128;
 pub const MAX_BUFFER_SIZE: usize = buffer_size(4);
 
+pub const FRAME_LENGTH: usize = BLOCK_SIZE*2;
+
+const HANNING_WINDOW: [f64; FRAME_LENGTH] = const{
+    let mut temp: [f64; FRAME_LENGTH] = [0.0; FRAME_LENGTH];
+    for i in 0..FRAME_LENGTH {
+        temp[i] = 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / (FRAME_LENGTH as f64 - 1.0)).cos())
+    }
+    temp
+};
+
+pub fn mult_hanning_window<f64>(input_array: &[f64; FRAME_LENGTH]) -> [f64; FRAME_LENGTH] {
+    let ret = [0.0; FRAME_LENGTH];
+    for i in 0..FRAME_LENGTH {
+        ret[i] = input_array[i] * HANNING_WINDOW[i]
+    }
+    ret
+}
+
 #[inline(always)]
 pub const fn buffer_size(multiplier: u8) -> usize {
     multiplier as usize * BLOCK_SIZE + ADDITION
@@ -19,10 +37,16 @@ fn process_channel(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8, dst: &mut [f64;
     let m = one_time_consume(multiplier);
     // TODO: Time-scale Modificaiton
 
-    // ==== DUMMY CODE BELOW ====
+    weighted_part1 = mult_hanning_window(&src[..FRAME_LENGTH]);
+    weighted_part2 = mult_hanning_window(&src[m..m+FRAME_LENGTH]);
     for i in 0..BLOCK_SIZE {
-        dst[i] = unsafe { *src.get_unchecked(i * usize::from(multiplier) / 2) };
+        dst[i] = weighted_part1[BLOCK_SIZE+i]+weighted_part2[i];
     }
+
+    // ==== DUMMY CODE BELOW ====
+    
+    // 谢谢烈火！
+
     // ==== DUMMY CODE ABOVE ====
 }
 

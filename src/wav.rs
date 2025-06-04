@@ -266,7 +266,7 @@ where
                 let d_size_8 = shift::buffer_size(self.multiplier) * sample_size;
                 let buf = reader.peek(buf_size_8)?;
 
-                let l = buf.len();
+                let l: usize = buf.len();
                 if l == 0 {
                     if unlikely(self.progress.pos != self.progress.end) {
                         return Err(INVALID_RET.into());
@@ -282,7 +282,7 @@ where
 
                 let consume_in;
                 if l < d_size_8 {
-                    let v8 = unsafe { core::slice::from_raw_parts_mut(v.as_mut_ptr().cast(), d_size_8) };
+                    let v8: &mut [u8] = unsafe { core::slice::from_raw_parts_mut(v.as_mut_ptr().cast(), d_size_8) };
 
                     if unlikely(self.progress.pos + l != self.progress.end) {
                         return Err(INVALID_RET.into());
