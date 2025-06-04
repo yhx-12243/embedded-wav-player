@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use crate::fmt_impl::Fmt;
 
 pub const BLOCK_SIZE: usize = 512;
@@ -6,16 +8,16 @@ pub const MAX_BUFFER_SIZE: usize = buffer_size(4);
 
 pub const FRAME_LENGTH: usize = BLOCK_SIZE*2;
 
-const HANNING_WINDOW: [f64; FRAME_LENGTH] = const{
-    let mut temp: [f64; FRAME_LENGTH] = [0.0; FRAME_LENGTH];
+static HANNING_WINDOW: LazyLock<[f64; FRAME_LENGTH]> = LazyLock::new(|| {
+    let mut temp = [0.0; FRAME_LENGTH];
     for i in 0..FRAME_LENGTH {
-        temp[i] = 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / (FRAME_LENGTH as f64 - 1.0)).cos())
+        temp[i] = 0.5 * (1.0 - (core::f64::consts::TAU * i as f64 / FRAME_LENGTH as f64).cos())
     }
     temp
-};
+});
 
-pub fn mult_hanning_window<f64>(input_array: &[f64; FRAME_LENGTH]) -> [f64; FRAME_LENGTH] {
-    let ret = [0.0; FRAME_LENGTH];
+pub fn mult_hanning_window(input_array: &[f64; FRAME_LENGTH]) -> [f64; FRAME_LENGTH] {
+    let mut ret = [0.0; FRAME_LENGTH];
     for i in 0..FRAME_LENGTH {
         ret[i] = input_array[i] * HANNING_WINDOW[i]
     }
@@ -28,6 +30,7 @@ pub const fn buffer_size(multiplier: u8) -> usize {
 }
 
 #[inline(always)]
+/// effectively (`BLOCK_SIZE` * speed)
 pub const fn one_time_consume(multiplier: u8) -> usize {
     multiplier as usize * const { BLOCK_SIZE / 2 }
 }
@@ -35,19 +38,10 @@ pub const fn one_time_consume(multiplier: u8) -> usize {
 fn process_channel(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8, dst: &mut [f64; BLOCK_SIZE]) {
     let n = buffer_size(multiplier);
     let m = one_time_consume(multiplier);
-    // TODO: Time-scale Modificaiton
 
-    weighted_part1 = mult_hanning_window(&src[..FRAME_LENGTH]);
-    weighted_part2 = mult_hanning_window(&src[m..m+FRAME_LENGTH]);
     for i in 0..BLOCK_SIZE {
-        dst[i] = weighted_part1[BLOCK_SIZE+i]+weighted_part2[i];
+        dst[i] = src[BLOCK_SIZE + i] * HANNING_WINDOW[BLOCK_SIZE + i] + src[m + i] * HANNING_WINDOW[i];
     }
-
-    // ==== DUMMY CODE BELOW ====
-    
-    // 谢谢烈火！
-
-    // ==== DUMMY CODE ABOVE ====
 }
 
 /// (ret: 输入消耗量，输出写入量)
