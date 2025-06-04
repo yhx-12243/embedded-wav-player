@@ -24,21 +24,19 @@ fn mult_hanning_window(input_array: &[f64; FRAME_LENGTH]) -> [f64; FRAME_LENGTH]
     ret
 }
 
-fn correlate(x: &[f64], y: &[f64]) -> Vec<f64> {
-    let mut result = Vec::with_capacity(y.len() - x.len() + 1);
+fn correlate(x: &[f64], y: &[f64], out: &mut [f64]) {
     for k in 0..=y.len() - x.len() {
         let mut sum = 0.0;
         for i in 0..x.len() {
             sum += x[i] * y[k + i];
         }
-        result.push(sum);
+        out[k] = sum;
     }
-    result
 }
 
 #[inline(always)]
 pub const fn buffer_size(multiplier: u8) -> usize {
-    (multiplier as usize + 2) * const { BLOCK_SIZE / 2 } + ADDITION
+    one_time_consume(multiplier) + FRAME_LENGTH + ADDITION
 }
 
 #[inline(always)]
@@ -51,19 +49,18 @@ fn process_channel(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8, dst: &mut [f64;
     let n = buffer_size(multiplier);
     let m = one_time_consume(multiplier);
 
-    let overlap_part1 = src[..FRAME_LENGTH].as_array().unwrap();
+    let overlap_part1 = src[..FRAME_LENGTH].as_array::<FRAME_LENGTH>().unwrap();
+    let ref_part = src[BLOCK_SIZE..BLOCK_SIZE + FRAME_LENGTH].as_array::<FRAME_LENGTH>().unwrap();
     let slide_window = &src[m - ADDITION / 2..m + FRAME_LENGTH + ADDITION / 2];
-    let result = correlate(overlap_part1, &slide_window);
+    let mut result = [0.0; ADDITION + 1];
+    correlate(ref_part, &slide_window, &mut result);
     let argmax = result.iter().enumerate()
         .max_by(|(_, x), (_, y)| x.total_cmp(y))
         .unwrap().0 + m - ADDITION / 2;
-    let overlap_part2: &[f64; FRAME_LENGTH] = src[argmax..argmax + FRAME_LENGTH].as_array().unwrap();
-
-    let weighted_part1 = mult_hanning_window(overlap_part1);
-    let weighted_part2 = mult_hanning_window(overlap_part2);
+    let overlap_part2 = src[argmax..argmax + FRAME_LENGTH].as_array::<FRAME_LENGTH>().unwrap();
 
     for i in 0..BLOCK_SIZE {
-        dst[i] = weighted_part1[BLOCK_SIZE + i] + weighted_part2[i]
+        dst[i] = overlap_part1[BLOCK_SIZE + i] * HANNING_WINDOW[BLOCK_SIZE + i] + overlap_part2[i] * HANNING_WINDOW[i];
     }
 }
 
