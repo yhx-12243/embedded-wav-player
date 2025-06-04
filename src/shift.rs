@@ -45,15 +45,8 @@ pub const fn one_time_consume(multiplier: u8) -> usize {
     multiplier as usize * const { BLOCK_SIZE / 2 }
 }
 
-fn compute_offset(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8) -> usize {
-    todo!()
-}
-
-fn process_channel(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8, offset: usize, dst: &mut [f64; BLOCK_SIZE]) -> usize {
-    let n = buffer_size(multiplier);
+fn compute_step(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8) -> usize {
     let m = one_time_consume(multiplier);
-
-    let overlap_part1 = src[..FRAME_LENGTH].as_array::<FRAME_LENGTH>().unwrap();
     let ref_part = src[BLOCK_SIZE..BLOCK_SIZE + FRAME_LENGTH].as_array::<FRAME_LENGTH>().unwrap();
     let slide_window = &src[m - ADDITION / 2..m + FRAME_LENGTH + ADDITION / 2];
     let mut result = [0.0; ADDITION + 1];
@@ -61,13 +54,17 @@ fn process_channel(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8, offset: usize, 
     let argmax = result.iter().enumerate()
         .max_by(|(_, x), (_, y)| x.total_cmp(y))
         .unwrap().0 + m - ADDITION / 2;
-    let overlap_part2 = src[argmax..argmax + FRAME_LENGTH].as_array::<FRAME_LENGTH>().unwrap();
+    argmax
+}
+
+fn process_channel(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8, step: usize, dst: &mut [f64; BLOCK_SIZE]){
+
+    let overlap_part1 = src[..FRAME_LENGTH].as_array::<FRAME_LENGTH>().unwrap();
+    let overlap_part2 = src[step..step + FRAME_LENGTH].as_array::<FRAME_LENGTH>().unwrap();
 
     for i in 0..BLOCK_SIZE {
         dst[i] = overlap_part1[BLOCK_SIZE + i] * HANNING_WINDOW[BLOCK_SIZE + i] + overlap_part2[i] * HANNING_WINDOW[i];
     }
-
-    m
 }
 
 /// (ret: 输入消耗量，输出写入量)
@@ -98,12 +95,9 @@ pub fn process<S: Fmt>(mut r#in: &[S], channels: usize, multiplier: u8, mut out:
                 v[j] = unsafe { block.get_unchecked(j * channels + i) }.to_f64();
             }
             if i == 0 {
-                offset = compute_offset(&v, multiplier);
+                consume_now = compute_offset(&v, multiplier);
             }
-            let c = process_channel(&v, multiplier, offset, &mut scratch);
-            if i == 0 {
-                consume_now = c;
-            }
+            process_channel(&v, multiplier, consume_now, &mut scratch);
             for j in 0..BLOCK_SIZE {
                 *unsafe { out.get_unchecked_mut(j * channels + i) } = S::from_f64(scratch[j]);
             }
