@@ -153,8 +153,8 @@ where
         self.progress.pos = self.progress.begin;
         self.progress.delay = 0;
 
-        let buf_size_8 = 2 * shift::MAX_BUFFER_SIZE * sample_size;
-        let buf_size = 2 * shift::MAX_BUFFER_SIZE * usize::from(spec.channels);
+        let buf_size_8 = shift::MAX_BUFFER_SIZE * sample_size;
+        let buf_size = shift::MAX_BUFFER_SIZE * usize::from(spec.channels);
         buffer_resize(reader, buf_size_8);
 
         let io = IO::<S>::new(&pcm);

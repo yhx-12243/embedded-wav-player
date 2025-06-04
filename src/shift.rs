@@ -2,8 +2,8 @@ use std::{char::MAX, sync::LazyLock};
 
 use crate::fmt_impl::Fmt;
 
-pub const BLOCK_SIZE: usize = 512;
-pub const ADDITION: usize = 128;
+pub const BLOCK_SIZE: usize = 1024;
+pub const ADDITION: usize = 64;
 pub const MAX_BUFFER_SIZE: usize = buffer_size(4);
 
 pub const FRAME_LENGTH: usize = BLOCK_SIZE * 2;
@@ -72,7 +72,7 @@ pub fn process<S: Fmt>(mut r#in: &[S], channels: usize, multiplier: u8, mut out:
     if multiplier == 2 { // fast path, without interleave/transpose
         let l = r#in.len().min(out.len());
         out[..l].copy_from_slice(&r#in[..l]);
-        return (channels * BLOCK_SIZE, channels * BLOCK_SIZE);
+        return (l, l);
     }
 
     let n = buffer_size(multiplier);
@@ -95,7 +95,7 @@ pub fn process<S: Fmt>(mut r#in: &[S], channels: usize, multiplier: u8, mut out:
                 v[j] = unsafe { block.get_unchecked(j * channels + i) }.to_f64();
             }
             if i == 0 {
-                consume_now = compute_offset(&v, multiplier);
+                consume_now = compute_step(&v, multiplier);
             }
             process_channel(&v, multiplier, consume_now, &mut scratch);
             for j in 0..BLOCK_SIZE {
