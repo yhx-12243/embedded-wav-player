@@ -6,7 +6,7 @@ pub const BLOCK_SIZE: usize = 512;
 pub const ADDITION: usize = 128;
 pub const MAX_BUFFER_SIZE: usize = buffer_size(4);
 
-pub const FRAME_LENGTH: usize = BLOCK_SIZE*2;
+pub const FRAME_LENGTH: usize = BLOCK_SIZE * 2;
 
 static HANNING_WINDOW: LazyLock<[f64; FRAME_LENGTH]> = LazyLock::new(|| {
     let mut temp = [0.0; FRAME_LENGTH];
@@ -38,7 +38,7 @@ fn correlate(x: &[f64], y: &[f64]) -> Vec<f64> {
 
 #[inline(always)]
 pub const fn buffer_size(multiplier: u8) -> usize {
-    multiplier as usize * BLOCK_SIZE + ADDITION
+    (multiplier as usize + 2) * const { BLOCK_SIZE / 2 } + ADDITION
 }
 
 #[inline(always)]
@@ -51,19 +51,20 @@ fn process_channel(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8, dst: &mut [f64;
     let n = buffer_size(multiplier);
     let m = one_time_consume(multiplier);
 
-    overlap_part1 = &src[..FRAME_LENGTH];
-    slide_window = &src[m-ADDITION/2..m+FRAME_LENGTH+ADDITION/2];
-    let result = correlate(&overlap_part1, &slide_window);
-    let argmax = result.iter().enumerate().max_by_key(|(_, x)| x).unwrap().0 + m-ADDITION/2;
-    overlap_part2 = &src[argmax..argmax+FRAME_LENGTH];
+    let overlap_part1 = src[..FRAME_LENGTH].as_array().unwrap();
+    let slide_window = &src[m - ADDITION / 2..m + FRAME_LENGTH + ADDITION / 2];
+    let result = correlate(overlap_part1, &slide_window);
+    let argmax = result.iter().enumerate()
+        .max_by(|(_, x), (_, y)| x.total_cmp(y))
+        .unwrap().0 + m - ADDITION / 2;
+    let overlap_part2: &[f64; FRAME_LENGTH] = src[argmax..argmax + FRAME_LENGTH].as_array().unwrap();
 
-    weighted_part1 = mult_hanning_window(overlap_part1);
-    weighted_part2 = mult_hanning_window(overlap_part2);
-    
+    let weighted_part1 = mult_hanning_window(overlap_part1);
+    let weighted_part2 = mult_hanning_window(overlap_part2);
+
     for i in 0..BLOCK_SIZE {
         dst[i] = weighted_part1[BLOCK_SIZE + i] + weighted_part2[i]
     }
-    // 谢谢烈火！
 }
 
 /// (ret: 输入消耗量，输出写入量)
