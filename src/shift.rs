@@ -87,15 +87,20 @@ pub fn process<S: Fmt>(mut r#in: &[S], channels: usize, multiplier: u8, mut out:
     while r#in.len() >= channels * n && out.len() >= channels * BLOCK_SIZE {
         let block = &r#in[..channels * n];
 
-        let mut consume_now = m;
+        let mut consume_now = 0;
         let mut offset = 0;
 
         for i in 0..channels {
             for j in 0..n {
                 v[j] = unsafe { block.get_unchecked(j * channels + i) }.to_f64();
             }
-            if i == 0 {
-                consume_now = compute_step(&v, multiplier);
+            consume_now += compute_step(&v, multiplier);
+        }
+        consume_now /= channels;
+
+        for i in 0..channels {
+            for j in 0..n {
+                v[j] = unsafe { block.get_unchecked(j * channels + i) }.to_f64();
             }
             process_channel(&v, multiplier, consume_now, &mut scratch);
             for j in 0..BLOCK_SIZE {
