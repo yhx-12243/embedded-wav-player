@@ -1,0 +1,49 @@
+diff --git a/build.rs b/build.rs
+index 6cf3afd..0139c52 100644
+--- a/build.rs
++++ b/build.rs
+@@ -240,10 +240,12 @@ fn main() {
+         .expect("Can't write bindings!");
+ 
+     #[cfg(feature = "drivers")]
+-    link_extra.split(',').for_each(|a| {
+-        println!("cargo:rustc-link-lib={a}");
+-        //println!("cargo:rustc-link-search=")
+-    })
++    if !link_extra.is_empty() {
++        link_extra.split(',').for_each(|a| {
++            println!("cargo:rustc-link-lib={a}");
++            //println!("cargo:rustc-link-search=")
++        })
++    }
+ }
+ 
+ fn add_font_headers(
+diff --git a/shims/lvgl_drv.h b/shims/lvgl_drv.h
+index 33a92e2..a9485a5 100644
+--- a/shims/lvgl_drv.h
++++ b/shims/lvgl_drv.h
+@@ -95,6 +95,10 @@ extern "C" {
+ #include "lv_drivers/indev/keyboard.h"
+ #endif
+ 
++#if USE_WAYLAND
++#include "lv_drivers/wayland/wayland.h"
++#endif
++
+ #endif /* LVGL_DRV_H */
+ 
+ #ifdef __cplusplus
+diff --git a/src/lib.rs b/src/lib.rs
+index ca2fadf..aa37252 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -11,8 +11,6 @@ pub fn _bindgen_raw_src() -> &'static str {
+     include_str!(concat!(env!("OUT_DIR"), "/bindings.rs"))
+ }
+ 
+-mod string_impl;
+-
+ #[cfg(test)]
+ mod tests {
+     use super::*;
