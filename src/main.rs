@@ -8,6 +8,7 @@
     mixed_integer_ops_unsigned_sub,
     never_type,
     new_zeroed_alloc,
+    slice_as_array,
     stmt_expr_attributes,
     sync_unsafe_cell,
     unboxed_closures,
