@@ -52,7 +52,7 @@ pub fn process<S: Fmt>(mut r#in: &[S], channels: usize, multiplier: u8, mut out:
             }
             process_channel(&v, multiplier, &mut scratch);
             for j in 0..BLOCK_SIZE {
-                out[j * channels + i] = S::from_f64(scratch[j]);
+                *unsafe { out.get_unchecked_mut(j * channels + i) } = S::from_f64(scratch[j]);
             }
         }
 

@@ -135,7 +135,7 @@ where
         let handle = get_channel_handle(&raw const rx);
         let spec = self.reader.spec();
 
-        if usize::from(spec.bytes_per_sample) != size_of::<S>() {
+        if usize::from(spec.bytes_per_sample) != size_of::<S>() || S::FORMAT != self.format {
             return Err(SIZE_MISMATCH.into());
         }
 

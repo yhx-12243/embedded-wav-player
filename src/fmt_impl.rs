@@ -40,7 +40,7 @@ impl IoFormat for S24_4 {
     const FORMAT: Format = Format::S24LE;
 }
 
-pub trait Fmt: IoFormat + Default {
+pub trait Fmt: IoFormat {
     fn to_f64(self) -> f64;
     fn from_f64(f: f64) -> Self;
 }
