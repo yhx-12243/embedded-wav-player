@@ -1,4 +1,4 @@
-use core::{any::type_name, cmp::min, hint::unlikely};
+use core::{any::type_name, hint::unlikely};
 use std::{
     io::{self, BufRead, BufReader, Seek, SeekFrom},
     sync::mpsc::{Receiver, RecvError, Sender, TryRecvError},
@@ -93,10 +93,10 @@ impl Drop for EndReporter {
     fn drop(&mut self) {
         match self.mtx.send(MP3Event::PlayerEnd { player: self.handle }) {
             Ok(()) => tracing::info!("Player (with handle \x1b[33m{}\x1b[0m) ends.", self.handle),
-            Err(e) => tracing::error!("Failed to send end event: {e}"),
+            Err(e) => tracing::warn!("Failed to send end event: {e}"),
         }
         if let Err(e) = self.gtx.send(GUIEvent::ProgressAccess { access: None, handle: self.handle }) {
-            tracing::error!("Failed to clear progress access: {e}");
+            tracing::warn!("Failed to clear progress access: {e}");
         }
     }
 }
@@ -153,8 +153,8 @@ where
         self.progress.pos = self.progress.begin;
         self.progress.delay = 0;
 
-        let buf_size = 2 * shift::BLOCK_SIZE * usize::from(spec.channels);
-        let buf_size_8 = 2 * shift::BLOCK_SIZE * sample_size;
+        let buf_size_8 = 2 * shift::MAX_BUFFER_SIZE * sample_size;
+        let buf_size = 2 * shift::MAX_BUFFER_SIZE * usize::from(spec.channels);
         buffer_resize(reader, buf_size_8);
 
         let io = IO::<S>::new(&pcm);
@@ -179,12 +179,8 @@ where
             match e {
                 PlayerEvent::Terminate => return Ok(()),
                 PlayerEvent::Move { offset } => {
-                    let pos = self.progress.pos
-                        .saturating_add_signed(offset * size_per_second.cast_signed())
-                        .clamp(self.progress.begin, self.progress.end);
-                    if self.progress.pos != pos {
-                        self.progress.pos = pos;
-                        reader.seek(SeekFrom::Start(pos as u64))?;
+                    if self.progress.normalize(self.multiplier, offset * size_per_second.cast_signed()) {
+                        reader.seek(SeekFrom::Start(self.progress.pos as u64))?;
                     }
                     continue;
                 }
@@ -210,16 +206,8 @@ where
                             PlayerEvent::Move { offset } => {
                                 if let Err(e) = pcm.drop() { tracing::warn!("drop: {e}"); }
                                 if let Err(e) = pcm.prepare() { tracing::warn!("prepare: {e}"); }
-                                let pos = self.progress.pos
-                                    .saturating_add_signed(offset * size_per_second.cast_signed())
-                                    .saturating_sub_signed(self.progress.delay)
-                                    .clamp(self.progress.begin, self.progress.end);
-                                if self.progress.pos != pos {
-                                    w_b = 0;
-                                    w_e = 0;
-                                    self.progress.pos = pos;
-                                    self.progress.delay = 0;
-                                    reader.seek(SeekFrom::Start(pos as u64))?;
+                                if self.progress.normalize(self.multiplier, offset * size_per_second.cast_signed()) {
+                                    reader.seek(SeekFrom::Start(self.progress.pos as u64))?;
                                 }
                             }
                             PlayerEvent::SetMultiplier { multiplier } => {
@@ -228,13 +216,8 @@ where
                                 if self.multiplier != multiplier {
                                     w_b = 0;
                                     w_e = 0;
-                                    let pos = self.progress.pos
-                                        .saturating_sub_signed(self.progress.delay)
-                                        .clamp(self.progress.begin, self.progress.end);
-                                    if self.progress.pos != pos {
-                                        self.progress.pos = pos;
-                                        self.progress.delay = 0;
-                                        reader.seek(SeekFrom::Start(pos as u64))?;
+                                    if self.progress.normalize(self.multiplier, 0) {
+                                        reader.seek(SeekFrom::Start(self.progress.pos as u64))?;
                                     }
                                     self.multiplier = multiplier;
                                 }
@@ -244,13 +227,8 @@ where
                                 if let Err(e) = pcm.prepare() { tracing::warn!("prepare: {e}"); }
                                 // w_b = 0;
                                 // w_e = 0;
-                                let pos = self.progress.pos
-                                    .saturating_sub_signed(self.progress.delay)
-                                    .clamp(self.progress.begin, self.progress.end);
-                                if self.progress.pos != pos {
-                                    self.progress.pos = pos;
-                                    self.progress.delay = 0;
-                                    reader.seek(SeekFrom::Start(pos as u64))?;
+                                if self.progress.normalize(self.multiplier, 0) {
+                                    reader.seek(SeekFrom::Start(self.progress.pos as u64))?;
                                 }
                                 break;
                             }
@@ -264,7 +242,14 @@ where
                 // 还有没写完的，先写
                 if w_b != w_e {
                     let expected = (w_e - w_b) / usize::from(spec.channels);
-                    let real = io.writei(&w[w_b..w_e])?;
+                    let real = loop {
+                        match io.writei(&w[w_b..w_e]) {
+                            Ok(s) => break s,
+                            Err(e) if io::Error::from_raw_os_error(e.errno()).kind() == io::ErrorKind::BrokenPipe =>
+                                if let Err(e) = pcm.prepare() { tracing::warn!("play-prepare: {e}"); }
+                            Err(e) => return Err(e.into()),
+                        }
+                    };
                     if real == 0 {
                         continue;
                     } else if real < expected { // print a warning
@@ -277,41 +262,43 @@ where
                     continue;
                 }
 
-                let buf = reader.fill_buf()?;
-                if buf.is_empty() {
+                let d_size = shift::buffer_size(self.multiplier) * usize::from(spec.channels);
+                let d_size_8 = shift::buffer_size(self.multiplier) * sample_size;
+                let buf = reader.peek(buf_size_8)?;
+
+                let l = buf.len();
+                if l == 0 {
+                    if unlikely(self.progress.pos != self.progress.end) {
+                        return Err(INVALID_RET.into());
+                    }
+
                     if pcm.state() == State::Running {
                         core::hint::spin_loop();
                         continue;
                     }
+
                     return Ok(());
                 }
 
-                let mut l = buf.len();
                 let consume_in;
-                if unlikely(l < buf_size_8) {
-                    let v8 = unsafe { core::slice::from_raw_parts_mut(v.as_mut_ptr().cast(), buf_size_8) };
+                if l < d_size_8 {
+                    let v8 = unsafe { core::slice::from_raw_parts_mut(v.as_mut_ptr().cast(), d_size_8) };
+
+                    if unlikely(self.progress.pos + l != self.progress.end) {
+                        return Err(INVALID_RET.into());
+                    }
 
                     v8[..l].copy_from_slice(buf);
-                    reader.consume(l);
-                    self.progress.pos += l;
+                    v8[l..].fill(0);
 
-                    let rem = min(self.progress.end - self.progress.pos, buf_size_8 - l);
-                    reader.get_mut().read_exact(&mut v8[l..l + rem])?;
-                    self.progress.pos += rem;
-
-                    l += rem;
-                    if l < buf_size_8 { v8[l..].fill(0); }
-
-                    (consume_in, w_e) = shift::process(&v, self.multiplier, &mut w);
-                    let diff = buf_size - consume_in;
-                    if diff > 0 {
-                        self.progress.pos -= diff;
-                        reader.seek(SeekFrom::Current(-(diff as i64)))?;
-                    }
+                    (consume_in, w_e) = shift::process(&v[..d_size], usize::from(spec.channels), self.multiplier, &mut w);
+                    let consume = l.min(consume_in * size_of::<S>());
+                    reader.consume(consume);
+                    self.progress.pos += consume;
                 } else {
-                    let reinterpret = unsafe { core::slice::from_raw_parts(buf.as_ptr().cast(), buf_size) };
+                    let reinterpret = unsafe { core::slice::from_raw_parts(buf.as_ptr().cast(), buf.len() / size_of::<S>()) };
 
-                    (consume_in, w_e) = shift::process(reinterpret, self.multiplier, &mut w);
+                    (consume_in, w_e) = shift::process(reinterpret, usize::from(spec.channels), self.multiplier, &mut w);
                     reader.consume(consume_in * size_of::<S>());
                     self.progress.pos += consume_in * size_of::<S>();
                 }

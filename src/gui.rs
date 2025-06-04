@@ -39,6 +39,7 @@ pub struct GUI {
     window: Display,
     screen: Obj,
     song_labels: Vec<Label>,
+    speeds: Vec<Btn>,
     progress: Option<Bar>,
     pl: Option<Label>,
     pn: Option<Label>,
@@ -101,6 +102,7 @@ impl GUI {
             window,
             screen,
             song_labels: Vec::new(),
+            speeds: Vec::new(),
             progress: None,
             pl: None,
             pn: None,
@@ -173,14 +175,16 @@ impl GUI {
         Self::set_label(&mut resume, "\u{f04b}\0" /* "▶\0" */.into())?;
         resume.on_event(ConstDispatcher(self.tx.clone(), PlayerEvent::Resume.into()))?;
 
-        // let mut speeds = Vec::new();
         for multiplier in 1..=4 {
             let mut speed = Btn::new()?;
             speed.set_pos(i16::from(multiplier) * 75 - 50, 275)?;
             speed.set_size(65, 20)?;
             Self::set_label(&mut speed, format!("{}x", f32::from(multiplier) * 0.5).into())?;
             speed.on_event(ConstDispatcher(self.tx.clone(), PlayerEvent::SetMultiplier { multiplier }.into()))?;
-            // speeds.push(speed);
+            if let Ok(r) = speed.raw() && multiplier == 2 {
+                Self::highlight(r);
+            }
+            self.speeds.push(speed);
         }
 
         let mut vol = Slider::new()?;
@@ -202,35 +206,27 @@ impl GUI {
 
         let mut pl = Label::new()?;
         pl.set_pos(25, 220)?;
+        pl.set_text_static(Default::default())?;
         self.pl = Some(pl);
 
         let mut pn = Label::new()?;
         pn.set_pos(315, 220)?;
+        pn.set_text_static(Default::default())?;
         self.pn = Some(pn);
 
         Ok(())
     }
 
-    fn highlight(label: &Label) -> LvResult<()> {
+    fn highlight(obj: NonNull<lvgl_sys::lv_obj_t>) {
         unsafe {
-            lvgl_sys::lv_obj_set_style_bg_color(
-                label.raw()?.as_ptr(),
-                lvgl_sys::lv_palette_main(6),
-                0,
-            );
+            lvgl_sys::lv_obj_set_style_bg_color(obj.as_ptr(), lvgl_sys::lv_palette_main(1), 0);
         }
-        Ok(())
     }
 
-    fn de_highlight(label: &Label) -> LvResult<()> {
+    fn de_highlight(obj: NonNull<lvgl_sys::lv_obj_t>) -> bool {
         unsafe {
-            lvgl_sys::lv_obj_remove_local_style_prop(
-                label.raw()?.as_ptr(),
-                lvgl_sys::lv_style_prop_t_LV_STYLE_BG_COLOR,
-                0,
-            );
+            lvgl_sys::lv_obj_remove_local_style_prop(obj.as_ptr(), lvgl_sys::lv_style_prop_t_LV_STYLE_BG_COLOR, 0)
         }
-        Ok(())
     }
 
     pub fn main_loop(mut self, grx: Receiver<GUIEvent>) {
@@ -246,21 +242,30 @@ impl GUI {
             while let Ok(event) = grx.try_recv() {
                 match event {
                     GUIEvent::SwitchSong { index, handle } => {
-                        if let Some(l) = self.song_labels.get(last_index) {
-                            let _ = Self::de_highlight(l);
+                        if let Some(l) = self.song_labels.get(last_index) && let Ok(l) = l.raw() {
+                            Self::de_highlight(l);
                         }
-                        if let Some(l) = self.song_labels.get(index) {
-                            let _ = Self::highlight(l);
+                        if let Some(l) = self.song_labels.get(index) && let Ok(l) = l.raw() {
+                            Self::highlight(l);
                         }
                         last_index = index;
                         cur_handle = handle;
                         pa = None;
                     }
-                    GUIEvent::ProgressAccess { access, handle } => {
+                    GUIEvent::ProgressAccess { access, handle } =>
                         if cur_handle == handle {
                             pa = access;
                         }
-                    }
+                    GUIEvent::SetMultiplier { multiplier } =>
+                        for (i, b) in self.speeds.iter().enumerate() {
+                            if let Ok(b) = b.raw() {
+                                if i + 1 == usize::from(multiplier) {
+                                    Self::highlight(b);
+                                } else {
+                                    Self::de_highlight(b);
+                                }
+                            }
+                        }
                 }
             }
 

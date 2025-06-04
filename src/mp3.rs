@@ -188,6 +188,10 @@ impl MP3 {
                     if let Some(tx) = &self.tx {
                         let _ = tx.send(sub);
                     }
+                    if let PlayerEvent::SetMultiplier { multiplier } = sub {
+                        self.multiplier = multiplier;
+                        let _ = gtx.send(GUIEvent::SetMultiplier { multiplier });
+                    }
                 }
                 Ok(MP3Event::SwitchSong { seek }) => {
                     let idx = match seek {

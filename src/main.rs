@@ -1,4 +1,5 @@
 #![feature(
+    bufreader_peek,
     debug_closure_helpers,
     fn_traits,
     io_const_error,

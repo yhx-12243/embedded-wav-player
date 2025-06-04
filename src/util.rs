@@ -143,6 +143,7 @@ impl From<PlayerEvent> for MP3Event {
 pub enum GUIEvent {
     SwitchSong { index: usize, handle: Handle },
     ProgressAccess { access: Option<ProgressAccess>, handle: Handle },
+    SetMultiplier { multiplier: u8 },
 }
 
 #[derive(Clone, Copy, Default)]
@@ -151,6 +152,25 @@ pub struct Progress {
     pub pos: usize,
     pub end: usize,
     pub delay: isize,
+}
+
+impl Progress {
+    #[inline(always)]
+    pub fn c(self, multiplier: u8, extra: isize) -> usize {
+        self.pos
+            .saturating_add_signed(extra)
+            .saturating_sub_signed(self.delay * isize::from(multiplier) / 2)
+            .clamp(self.begin, self.end)
+    }
+
+    #[inline(always)]
+    pub fn normalize(&mut self, multiplier: u8, extra: isize) -> bool {
+        let new_pos = self.c(multiplier, extra);
+        let eq = self.pos == new_pos;
+        self.pos = new_pos;
+        self.delay = 0;
+        !eq
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -164,6 +184,7 @@ pub struct ProgressAccess {
 unsafe impl Send for ProgressAccess {}
 
 impl ProgressAccess {
+    #[inline]
     fn i(mut num: usize, den: usize) -> String {
         use fmt::Write;
 
@@ -179,25 +200,23 @@ impl ProgressAccess {
         ret
     }
 
-    #[inline]
-    pub fn c(&self) -> usize {
-        let progress = unsafe { *self.progress };
-        let multiplier = unsafe { *self.multiplier };
-        (progress.pos - progress.begin).wrapping_sub_signed(progress.delay * isize::from(multiplier) / 2)
+    #[inline(always)]
+    pub fn c(self) -> usize {
+        unsafe { (*self.progress).c(*self.multiplier, 0) }
     }
 
-    #[inline]
-    pub fn p(&self) -> usize {
+    #[inline(always)]
+    pub fn p(self) -> usize {
         (((self.c() as u64) << 20) / self.duration as u64) as usize
     }
 
-    #[inline]
-    pub fn l(&self) -> String {
+    #[inline(always)]
+    pub fn l(self) -> String {
         Self::i(self.c(), self.size_per_second)
     }
 
-    #[inline]
-    pub fn n(&self) -> String {
+    #[inline(always)]
+    pub fn n(self) -> String {
         Self::i(self.duration, self.size_per_second)
     }
 }

@@ -1,41 +1,67 @@
 use crate::fmt_impl::Fmt;
 
-pub const BLOCK_SIZE: usize = 1024;
+pub const BLOCK_SIZE: usize = 512;
+pub const ADDITION: usize = 128;
+pub const MAX_BUFFER_SIZE: usize = buffer_size(4);
 
-/// out size should be (`BLOCK_SIZE` * multiplier / 2)
-pub fn process_channel(v: &[f64; 2 * BLOCK_SIZE], multiplier: u8, out: &mut [f64]) {
-    match multiplier {
-        1 => (),
-        2 => out[..BLOCK_SIZE].copy_from_slice(&v[..BLOCK_SIZE]),
-        3 => (),
-        4 => (),
-        _ => panic!("invalid value"),
+#[inline(always)]
+pub const fn buffer_size(multiplier: u8) -> usize {
+    multiplier as usize * BLOCK_SIZE + ADDITION
+}
+
+#[inline(always)]
+pub const fn one_time_consume(multiplier: u8) -> usize {
+    multiplier as usize * const { BLOCK_SIZE / 2 }
+}
+
+fn process_channel(src: &[f64; MAX_BUFFER_SIZE], multiplier: u8, dst: &mut [f64; BLOCK_SIZE]) {
+    let n = buffer_size(multiplier);
+    let m = one_time_consume(multiplier);
+    // TODO: Time-scale Modificaiton
+
+    // ==== DUMMY CODE BELOW ====
+    for i in 0..BLOCK_SIZE {
+        dst[i] = unsafe { *src.get_unchecked(i * usize::from(multiplier) / 2) };
     }
+    // ==== DUMMY CODE ABOVE ====
 }
 
 /// (ret: 输入消耗量，输出写入量)
-pub fn process<S: Fmt>(block: &[S], multiplier: u8, out: &mut [S]) -> (usize, usize) {
-    let l = block.len();
-    assert!(l % (2 * BLOCK_SIZE) == 0 && l > 0 && multiplier > 0);
-    if multiplier == 2 { // fast path
-        out[..l].copy_from_slice(block);
-        return (l, l);
+pub fn process<S: Fmt>(mut r#in: &[S], channels: usize, multiplier: u8, mut out: &mut [S]) -> (usize, usize) {
+    if multiplier == 2 { // fast path, without interleave/transpose
+        let l = r#in.len().min(out.len());
+        out[..l].copy_from_slice(&r#in[..l]);
+        return (channels * BLOCK_SIZE, channels * BLOCK_SIZE);
     }
 
-    let channels = l / (2 * BLOCK_SIZE);
-    let mut v = [0f64; 2 * BLOCK_SIZE];
-    let mut scratch = [0f64; 2 * BLOCK_SIZE];
-    let out_len = const { BLOCK_SIZE / 2 } * usize::from(multiplier);
-    let scratch = &mut scratch[..out_len];
-    for i in 0..channels {
-        for j in 0..BLOCK_SIZE {
-            v[j] = unsafe { block.get_unchecked(j * channels + i) }.to_f64();
+    let n = buffer_size(multiplier);
+    let m = one_time_consume(multiplier);
+
+    let mut v = [0f64; MAX_BUFFER_SIZE];
+    let mut scratch = [0f64; BLOCK_SIZE];
+
+    let mut consume = 0;
+    let mut produce = 0;
+
+    while r#in.len() >= channels * n && out.len() >= channels * BLOCK_SIZE {
+        let block = &r#in[..channels * n];
+
+        for i in 0..channels {
+            for j in 0..n {
+                v[j] = unsafe { block.get_unchecked(j * channels + i) }.to_f64();
+            }
+            process_channel(&v, multiplier, &mut scratch);
+            for j in 0..BLOCK_SIZE {
+                out[j * channels + i] = S::from_f64(scratch[j]);
+            }
         }
-        process_channel(&v, multiplier, scratch);
-        for j in 0..out_len {
-            out[j * channels + i] = S::from_f64(scratch[j]);
-        }
+
+        consume += channels * m;
+        produce += channels * BLOCK_SIZE;
+
+        r#in = &r#in[channels * m..];
+        out = &mut out[channels * BLOCK_SIZE..];
     }
 
-    (channels * BLOCK_SIZE, channels * out_len)
+    (consume, produce)
 }
