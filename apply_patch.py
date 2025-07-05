@@ -124,9 +124,14 @@ def main():
         .stdout                                                                 \
         .split(None, 1)[0]                                                      \
         .decode()
-    print(f'Use toolchain: \x1b[1;36m{toolchain}\x1b[0m\n')
+    print(f'Use toolchain: \x1b[1;36m{toolchain}\x1b[0m')
+    for line in run(['rustc', '-vV'], capture_output = True, cwd=workspace).stdout.splitlines():
+        k, *v = line.split(b': ')
+        if k == b'host':
+            target = v[0].decode()
+    print(f'Use target: \x1b[1;33m{target}\x1b[0m\n')
 
-    run(['cargo', 'fetch'], cwd=workspace)
+    run(['cargo', 'fetch', '--target', target], cwd=workspace)
 
     stdlib = args.rustup_path / 'toolchains' / toolchain / 'lib/rustlib/src/rust/library'
     assert stdlib.is_dir()
@@ -184,7 +189,7 @@ def main():
                 need_fetch = True
 
     if need_fetch:
-        run(['cargo', 'fetch'], cwd=workspace)
+        run(['cargo', 'fetch', '--target', target], cwd=workspace)
 
     for (prompt, (patch, path, status)) in responses:
         print(prompt)
